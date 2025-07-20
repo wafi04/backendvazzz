@@ -60,11 +60,10 @@ type DuitkuService struct {
 	HttpClient            *http.Client
 }
 
-func NewDuitkuService(duitkuKey, duitkuMerchantCode string, duitkuExpiryPeriod *int64) *DuitkuService {
+func NewDuitkuService(duitkuKey, duitkuMerchantCode string) *DuitkuService {
 	return &DuitkuService{
 		DuitkuKey:             duitkuKey,
 		DuitkuMerchantCode:    duitkuMerchantCode,
-		DuitkuExpiryPeriod:    duitkuExpiryPeriod,
 		BaseUrl:               "https://passport.duitku.com/webapi/api/merchant/v2/inquiry",
 		SandboxUrl:            "https://sandbox.duitku.com/webapi/api/merchant/v2/inquiry",
 		BaseUrlGetTransaction: "https://passport.duitku.com/webapi/api/merchant/transactionStatus",
@@ -149,51 +148,9 @@ func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCre
 	}, nil
 }
 
-func (s *DuitkuService) GetTransaction(ctx context.Context, merchantOrderId string) (*ResponseFromDuitkuCheckTransaction, error) {
-	// Generate signature: md5(merchantCode + merchantOrderId + apiKey)
-	signature := s.generateSignature(merchantOrderId, 0)
-
-	payload := map[string]interface{}{
-		"merchantcode":    s.DuitkuMerchantCode,
-		"merchantOrderId": merchantOrderId,
-		"signature":       signature,
-	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", s.BaseUrlGetTransaction, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.HttpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var response ResponseFromDuitkuCheckTransaction
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	return &response, nil
-}
-
 func (s *DuitkuService) GetSaldo(ctx context.Context, email string) (map[string]interface{}, error) {
 	timestamp := time.Now().Unix()
 
-	// Generate signature: md5(email + timestamp + apiKey)
 	h := md5.New()
 	h.Write([]byte(email + strconv.FormatInt(timestamp, 10) + s.DuitkuKey))
 	signature := hex.EncodeToString(h.Sum(nil))
@@ -236,16 +193,12 @@ func (s *DuitkuService) GetSaldo(ctx context.Context, email string) (map[string]
 	return response, nil
 }
 
-// Helper functions
-
 func (s *DuitkuService) generateSignature(merchantOrderId string, paymentAmount int) string {
 	var signatureString string
 
 	if paymentAmount > 0 {
-		// For create transaction: merchantCode + merchantOrderId + paymentAmount + apiKey
 		signatureString = s.DuitkuMerchantCode + merchantOrderId + strconv.Itoa(paymentAmount) + s.DuitkuKey
 	} else {
-		// For get transaction: merchantCode + merchantOrderId + apiKey
 		signatureString = s.DuitkuMerchantCode + merchantOrderId + s.DuitkuKey
 	}
 

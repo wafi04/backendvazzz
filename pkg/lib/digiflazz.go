@@ -2,90 +2,119 @@ package lib
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
-
-	"github.com/wafi04/backendvazzz/pkg/config"
-	"github.com/wafi04/backendvazzz/pkg/types"
 )
 
+// ProductData represents individual product data
+type ProductData struct {
+	BuyerProductStatus  bool   `json:"buyer_product_status"`
+	BuyerSkuCode        string `json:"buyer_sku_code"`
+	Category            string `json:"category"`
+	Desc                string `json:"desc"`
+	EndCutOff           string `json:"end_cut_off"`
+	Multi               bool   `json:"multi"`
+	Price               int    `json:"price"`
+	ProductName         string `json:"product_name"`
+	SellerName          string `json:"seller_name"`
+	SellerProductStatus bool   `json:"seller_product_status"`
+	StartCutOff         string `json:"start_cut_off"`
+	Stock               int    `json:"stock"`
+	Type                string `json:"type"`
+	UnlimitedStock      bool   `json:"unlimited_stock"`
+	Brand               string `json:"brand"`
+}
+
+// DigiflazzResponse represents the main API response structure
+type DigiflazzResponse struct {
+	Data []ProductData `json:"data"` // Array of products
+}
+
+// DigiConfig holds Digiflazz configuration
 type DigiConfig struct {
 	DigiKey      string
 	DigiUsername string
 }
 
-func NewDigiflazzService(digiConfig DigiConfig) *DigiConfig {
-	return &DigiConfig{
-		DigiKey:      digiConfig.DigiKey,
-		DigiUsername: digiConfig.DigiUsername,
+// DigiflazzService handles Digiflazz API operations
+type DigiflazzService struct {
+	config DigiConfig
+}
+
+// NewDigiflazzService creates new Digiflazz service instance
+func NewDigiflazzService(config DigiConfig) *DigiflazzService {
+	return &DigiflazzService{
+		config: config,
 	}
 }
 
-func (digi *DigiConfig) Topup(create types.CreateTopup) (*types.ResponseFromDigiflazz, error) {
-	var noTujuan string
+// generateSign creates MD5 signature for API request
+func (d *DigiflazzService) generateSign(username, apiKey, cmd string) string {
+	data := username + apiKey + cmd
+	hash := md5.Sum([]byte(data))
+	return fmt.Sprintf("%x", hash)
+}
 
-	// Create signature
-	strs := []string{digi.DigiUsername, digi.DigiKey, create.Reference}
-	joined := strings.Join(strs, "")
-	data := []byte(joined)
-	hash := sha256.Sum256(data)
-	signature := hex.EncodeToString(hash[:])
+// CheckPrice fetches price list from Digiflazz API
+func (d *DigiflazzService) CheckPrice() ([]*ProductData, error) {
+	// Prepare request payload
+	sign := d.generateSign(d.config.DigiUsername, d.config.DigiKey, "pricelist")
 
-	if create.ServerId == "" {
-		noTujuan = create.UserId
-	} else {
-		noTujuan = create.UserId + create.ServerId
-	}
-
-	// Prepare request data
-	requestData := types.DigiflazzRequest{
-		Username:     digi.DigiUsername,
-		BuyerSkuCode: create.ProductCode,
-		CustomerNo:   noTujuan,
-		RefId:        create.Reference,
-		Sign:         signature,
-		CallbackURL:  config.GetEnv("DIGIFLAZZ_CALLBACK_URL", ""),
+	requestPayload := map[string]interface{}{
+		"username": d.config.DigiUsername,
+		"cmd":      "pricelist",
+		"sign":     sign,
 	}
 
 	// Convert to JSON
-	jsonData, err := json.Marshal(requestData)
+	jsonData, err := json.Marshal(requestPayload)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling request data: %v", err)
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequest("POST", "https://api.digiflazz.com/v1/transaction", bytes.NewBuffer(jsonData))
+	// Make HTTP request
+	resp, err := http.Post("https://api.digiflazz.com/v1/price-list", "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %v", err)
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-
-	// Send request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error sending request: %v", err)
+		return nil, fmt.Errorf("failed to make request: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Read response
+	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("error reading response: %v", err)
+		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	// Parse response
-	var result types.ResponseFromDigiflazz
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("error parsing response: %v", err)
+	// Check if response is successful
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status code: %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	return &result, nil
+	// Try to unmarshal as DigiflazzResponse first (with data wrapper)
+	var apiResponse DigiflazzResponse
+	if err := json.Unmarshal(body, &apiResponse); err == nil && len(apiResponse.Data) > 0 {
+		// Convert to pointer slice
+		result := make([]*ProductData, len(apiResponse.Data))
+		for i := range apiResponse.Data {
+			result[i] = &apiResponse.Data[i]
+		}
+		return result, nil
+	}
+
+	// If that fails, try to unmarshal as direct array
+	var directArray []ProductData
+	if err := json.Unmarshal(body, &directArray); err == nil {
+		// Convert to pointer slice
+		result := make([]*ProductData, len(directArray))
+		for i := range directArray {
+			result[i] = &directArray[i]
+		}
+		return result, nil
+	}
+
+	// If both fail, return error with response body for debugging
+	return nil, fmt.Errorf("failed to unmarshal response. Response body: %s", string(body))
 }

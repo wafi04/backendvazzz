@@ -1,0 +1,103 @@
+package middleware
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/wafi04/backendvazzz/pkg/config"
+)
+
+var authHelpers = NewAuthHelpers()
+
+func AuthMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Try to get token from multiple sources
+		var tokenString string
+
+		// First try cookie
+		if token, err := c.Cookie("vazzaccess"); err == nil && token != "" {
+			tokenString = token
+		} else {
+			// Fallback to Authorization header
+			authHeader := c.GetHeader("Authorization")
+			if authHeader == "" {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"message": "Missing authorization token",
+				})
+				c.Abort()
+				return
+			}
+
+			// Check Bearer format
+			if !strings.HasPrefix(authHeader, "Bearer ") {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"message": "Invalid authorization format",
+				})
+				c.Abort()
+				return
+			}
+
+			// Extract token
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+
+		if tokenString == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Missing token",
+			})
+			c.Abort()
+			return
+		}
+
+		// Validate token
+		claims, err := config.ValidateToken(tokenString)
+		if err != nil {
+			// If token is invalid and it's from cookie, clear the cookie
+			if _, cookieErr := c.Cookie("vazzaccess"); cookieErr == nil {
+				authHelpers.ClearAuthCookie(c)
+			}
+
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Invalid token",
+			})
+			c.Abort()
+			return
+		}
+
+		c.Set("user_id", claims["user_id"])
+		c.Set("username", claims["username"])
+		c.Set("role", claims["role"])
+
+		c.Next()
+	}
+}
+
+func AdminMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, exists := c.Get("role")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"success": false,
+				"message": "Role not found",
+			})
+			c.Abort()
+			return
+		}
+
+		if role != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"message": "Admin access required",
+			})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
