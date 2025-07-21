@@ -7,12 +7,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/wafi04/backendvazzz/pkg/utils"
 	"github.com/wafi04/backendvazzz/service/transaction"
+	"github.com/wafi04/backendvazzz/service/transactions"
 )
 
 func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 	transactionRepo := transaction.NewTransactionRepository(db)
+	transactionsRepo := transactions.NewTransactionsRepository(db)
+	transactionsHandler := transactions.NewTransactionHandler(transactionsRepo)
 
-	r := api.Group("/transactions/")
+	r := api.Group("/transactions")
 	{
 		r.POST("", func(ctx *gin.Context) {
 			var input transaction.CreateTransaction
@@ -47,6 +50,8 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 
 			utils.SuccessResponse(ctx, http.StatusCreated, "Transaction created successfully", response)
 		})
+
+		r.GET("", transactionsHandler.GetAll)
 	}
 
 }

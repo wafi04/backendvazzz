@@ -1,97 +1,25 @@
 package transactions
 
 import (
-	"crypto/rand"
+	"context"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
+	"github.com/wafi04/backendvazzz/pkg/model"
 	"github.com/wafi04/backendvazzz/pkg/types"
 )
-
-type TransactionsRepositoryInterface interface {
-	Create(req *types.CreateTransactions) (*types.Transaction, error)
-	GetByID(id int64) (*types.Transaction, error)
-	GetByOrderID(orderId string) (*types.Transaction, error)
-	GetByGameID(gameId string) ([]types.Transaction, error)
-	GetAll(limit, offset int) ([]types.Transaction, error)
-}
 
 type TransactionsRepository struct {
 	DB *sql.DB
 }
 
-func NewTransactionsRepository(DB *sql.DB) TransactionsRepositoryInterface {
+func NewTransactionsRepository(DB *sql.DB) *TransactionsRepository {
 	return &TransactionsRepository{
 		DB: DB,
 	}
-}
-
-func generateOrderID() string {
-	timestamp := time.Now().Unix()
-	bytes := make([]byte, 4)
-	rand.Read(bytes)
-	random := hex.EncodeToString(bytes)
-	return fmt.Sprintf("VAZZ%d%s", timestamp, random)
-}
-
-func (repo *TransactionsRepository) Create(req *types.CreateTransactions) (*types.Transaction, error) {
-	query := `
-		INSERT INTO transactions (
-			order_id, product_code, method_code, game_id, zone, voucher_code,
-			whatsapp_number, nickname, username, ip, user_agent, 
-			status, purchase_price, web_price, duitku_price, created_at, updated_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
-		) RETURNING id, created_at, updated_at`
-
-	var transaction types.Transaction
-	now := time.Now()
-	orderID := generateOrderID()
-
-	err := repo.DB.QueryRow(
-		query,
-		orderID,
-		req.ProductCode,
-		req.MethodCode,
-		req.GameId,
-		req.Zone,
-		req.VoucherCode,
-		req.WhatsAppNumber,
-		req.Nickname,
-		req.Username,
-		req.Ip,
-		req.UserAgent,
-		types.StatusPending,
-		0,
-		0,
-		0,
-		now,
-		now,
-	).Scan(&transaction.ID, &transaction.CreatedAt, &transaction.UpdatedAt)
-
-	if err != nil {
-		return nil, err
-	}
-
-	transaction.OrderId = orderID
-	transaction.ProductCode = req.ProductCode
-	transaction.MethodCode = req.MethodCode
-	transaction.GameId = req.GameId
-	transaction.Zone = req.Zone
-	transaction.VoucherCode = req.VoucherCode
-	transaction.WhatsAppNumber = req.WhatsAppNumber
-	transaction.Nickname = req.Nickname
-	transaction.Username = req.Username
-	transaction.Ip = req.Ip
-	transaction.UserAgent = req.UserAgent
-	transaction.Status = types.StatusPending
-	transaction.PurchasePrice = 0
-	transaction.WebPrice = 0
-	transaction.DuitkuPrice = 0
-
-	return &transaction, nil
 }
 
 // GetByID method untuk mengambil transaction berdasarkan ID
@@ -175,10 +103,9 @@ func (repo *TransactionsRepository) GetByOrderID(orderId string) (*types.Transac
 // GetByGameID method untuk mengambil transactions berdasarkan game ID
 func (repo *TransactionsRepository) GetByGameID(gameId string) ([]types.Transaction, error) {
 	query := `
-		SELECT id, order_id, product_code, method_code, game_id, zone, voucher_code,
-			   whatsapp_number, nickname, username, ip, user_agent,
-			   status, purchase_price, web_price, duitku_price, 
-			   created_at, updated_at, completed_at
+		SELECT   order_id, username, purchase_price, discount, user_id, zone,
+            service_name, price, profit, profit_amount, status, is_digi,
+            success_report_sent, transaction_type
 		FROM transactions WHERE game_id = $1
 		ORDER BY created_at DESC`
 
@@ -237,53 +164,187 @@ func (repo *TransactionsRepository) UpdateStatus(id int64, status string) error 
 	_, err := repo.DB.Exec(query, status, time.Now(), completedAt, id)
 	return err
 }
+func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req model.FilterTransaction) ([]model.TransactionWithPayment, int, error) {
+	whereConditions := []string{"1=1"}
+	args := []interface{}{}
+	argIndex := 1
 
-// GetAll method untuk mengambil semua transactions dengan pagination
-func (repo *TransactionsRepository) GetAll(limit, offset int) ([]types.Transaction, error) {
-	query := `
-		SELECT id, order_id, product_code, method_code, game_id, zone, voucher_code,
-			   whatsapp_number, nickname, username, ip, user_agent,
-			   status, purchase_price, web_price, duitku_price, 
-			   created_at, updated_at, completed_at
-		FROM transactions
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2`
+	// Debug log parameter yang masuk
+	log.Printf("Repository GetAllWithPayment called with: Limit=%d, Page=%d, Type=%s", req.Limit, req.Page, req.Type)
 
-	rows, err := repo.DB.Query(query, limit, offset)
+	// Search filter (username atau order_id)
+	if req.Search != nil && *req.Search != "" {
+		whereConditions = append(whereConditions,
+			fmt.Sprintf("(t.username ILIKE $%d OR t.order_id ILIKE $%d)", argIndex, argIndex))
+		searchPattern := "%" + *req.Search + "%"
+		args = append(args, searchPattern)
+		argIndex++
+	}
+
+	// Type filter (transaction_type)
+	if req.Type != "" {
+		whereConditions = append(whereConditions, fmt.Sprintf("t.transaction_type = $%d", argIndex))
+		args = append(args, req.Type)
+		argIndex++
+	}
+
+	// Status filter
+	if req.Status != nil && *req.Status != "" {
+		whereConditions = append(whereConditions, fmt.Sprintf("t.status = $%d", argIndex))
+		args = append(args, *req.Status)
+		argIndex++
+	}
+
+	// Date range filter
+	if req.StartDate != nil && *req.StartDate != "" {
+		whereConditions = append(whereConditions, fmt.Sprintf("DATE(t.created_at) >= $%d", argIndex))
+		args = append(args, *req.StartDate)
+		argIndex++
+	}
+
+	if req.EndDate != nil && *req.EndDate != "" {
+		whereConditions = append(whereConditions, fmt.Sprintf("DATE(t.created_at) <= $%d", argIndex))
+		args = append(args, *req.EndDate)
+		argIndex++
+	}
+
+	whereClause := strings.Join(whereConditions, " AND ")
+
+	// Count query
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) 
+		FROM transactions t
+		LEFT JOIN payments p ON t.order_id = p.order_id
+		WHERE %s`, whereClause)
+
+	log.Printf("Count Query: %s", countQuery)
+	log.Printf("Query Args: %v", args)
+
+	var totalCount int
+	err := repo.DB.QueryRowContext(c, countQuery, args...).Scan(&totalCount)
 	if err != nil {
-		return nil, err
+		log.Printf("GetAllWithPayment count error: %v", err)
+		return nil, 0, err
+	}
+
+	log.Printf("Total count found: %d", totalCount)
+
+	if totalCount == 0 {
+		return []model.TransactionWithPayment{}, 0, nil
+	}
+
+	offset := (req.Page - 1) * req.Limit
+
+	// Main query with JOIN
+	query := fmt.Sprintf(`
+		SELECT 
+			t.id, t.order_id, t.username, t.purchase_price, t.discount, t.user_id, t.zone,
+			t.nickname, t.service_name, t.price, t.profit, t.message, t.profit_amount,
+			t.provider_order_id, t.status, t.log, t.serial_number, t.is_re_order,
+			t.transaction_type, t.is_digi, t.ref_id, t.success_report_sent,
+			t.created_at, t.updated_at,
+			-- Payment detail fields (nullable)
+			p.order_id as payment_order_id, p.price as payment_price, p.total_amount,
+			p.payment_number, p.buyer_number, p.fee, p.fee_amount,
+			p.status as payment_status, p.method, p.reference,
+			p.created_at as payment_created_at, p.updated_at as payment_updated_at
+		FROM transactions t
+		LEFT JOIN payments p ON t.order_id = p.order_id
+		WHERE %s
+		ORDER BY t.created_at DESC
+		LIMIT $%d OFFSET $%d`, whereClause, argIndex, argIndex+1)
+
+	args = append(args, req.Limit, offset)
+
+	log.Printf("Main Query: %s", query)
+	log.Printf("Final Args: %v", args)
+
+	rows, err := repo.DB.QueryContext(c, query, args...)
+	if err != nil {
+		log.Printf("GetAllWithPayment query error: %v", err)
+		return nil, 0, err
 	}
 	defer rows.Close()
 
-	var transactions []types.Transaction
+	var transactions []model.TransactionWithPayment
 	for rows.Next() {
-		var transaction types.Transaction
+		var transaction model.TransactionWithPayment
+		var paymentOrderID, paymentPrice, paymentStatus, method, reference sql.NullString
+		var totalAmount, fee, feeAmount sql.NullInt64
+		var paymentNumber, buyerNumber sql.NullString
+		var paymentCreatedAt, paymentUpdatedAt sql.NullTime
+
 		err := rows.Scan(
+			// Transaction fields
 			&transaction.ID,
-			&transaction.OrderId,
-			&transaction.ProductCode,
-			&transaction.MethodCode,
-			&transaction.GameId,
-			&transaction.Zone,
-			&transaction.VoucherCode,
-			&transaction.WhatsAppNumber,
-			&transaction.Nickname,
+			&transaction.OrderID,
 			&transaction.Username,
-			&transaction.Ip,
-			&transaction.UserAgent,
-			&transaction.Status,
 			&transaction.PurchasePrice,
-			&transaction.WebPrice,
-			&transaction.DuitkuPrice,
+			&transaction.Discount,
+			&transaction.UserID,
+			&transaction.Zone,
+			&transaction.Nickname,
+			&transaction.ServiceName,
+			&transaction.Price,
+			&transaction.Profit,
+			&transaction.Message,
+			&transaction.ProfitAmount,
+			&transaction.ProviderOrderID,
+			&transaction.Status,
+			&transaction.Log,
+			&transaction.SerialNumber,
+			&transaction.IsReOrder,
+			&transaction.TransactionType,
+			&transaction.IsDigi,
+			&transaction.RefID,
+			&transaction.SuccessReportSent,
 			&transaction.CreatedAt,
 			&transaction.UpdatedAt,
-			&transaction.CompletedAt,
+			// Payment fields (nullable)
+			&paymentOrderID,
+			&paymentPrice,
+			&totalAmount,
+			&paymentNumber,
+			&buyerNumber,
+			&fee,
+			&feeAmount,
+			&paymentStatus,
+			&method,
+			&reference,
+			&paymentCreatedAt,
+			&paymentUpdatedAt,
 		)
 		if err != nil {
-			return nil, err
+			log.Printf("Row scan error: %v", err)
+			return nil, 0, err
 		}
+
+		// Create PaymentDetail only if payment data exists
+		if paymentOrderID.Valid {
+			transaction.PaymentDetail = &model.PaymentDetail{
+				OrderID:       paymentOrderID.String,
+				Price:         paymentPrice.String,
+				TotalAmount:   int(totalAmount.Int64),
+				PaymentNumber: paymentNumber.String,
+				BuyerNumber:   buyerNumber.String,
+				Fee:           int(fee.Int64),
+				FeeAmount:     int(feeAmount.Int64),
+				Status:        paymentStatus.String,
+				Method:        method.String,
+				Reference:     reference.String,
+				CreatedAt:     paymentCreatedAt.Time,
+				UpdatedAt:     paymentUpdatedAt.Time,
+			}
+		}
+
 		transactions = append(transactions, transaction)
 	}
 
-	return transactions, nil
+	if err = rows.Err(); err != nil {
+		log.Printf("Rows iteration error: %v", err)
+		return nil, 0, err
+	}
+
+	log.Printf("Successfully retrieved %d transactions with payment details", len(transactions))
+	return transactions, totalCount, nil
 }
