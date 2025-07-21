@@ -4,18 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
 	"github.com/wafi04/backendvazzz/pkg/config"
 	"github.com/wafi04/backendvazzz/pkg/lib"
+	"github.com/wafi04/backendvazzz/pkg/utils"
 )
 
 type CreateTransaction struct {
 	ProductCode string  `json:"productCode"`
 	MethodCode  string  `json:"methodCode"`
 	WhatsApp    string  `json:"whatsapp"`
+	Username    *string `json:"username"`
 	Role        string  `json:"role"`
 	VoucherCode *string `json:"voucherCode,omitempty"`
 	GameId      string  `json:"gameId"`
@@ -52,7 +53,7 @@ func (repo *TransactionRepository) Create(c context.Context, req CreateTransacti
 		total          int
 		price          int
 		pricePlatinum  int
-		isProfitFixed  string // Ubah dari string ke bool
+		isProfitFixed  string
 		priceReseller  int
 		pricePurchase  int
 		profit         int
@@ -61,7 +62,6 @@ func (repo *TransactionRepository) Create(c context.Context, req CreateTransacti
 		providerID     string
 	)
 
-	// Query untuk mendapatkan data service
 	query := `
 		SELECT 
 			price,
@@ -87,32 +87,30 @@ func (repo *TransactionRepository) Create(c context.Context, req CreateTransacti
 		return nil, fmt.Errorf("failed to query service: %w", err)
 	}
 
-	// Tentukan harga dan profit berdasarkan role
 	switch strings.ToUpper(req.Role) {
 	case "PLATINUM":
 		userPrice = pricePlatinum
-		if isProfitFixed == "actuve" {
+		if isProfitFixed == "active" {
 			userProfit = profitPlatinum
 		} else {
 			userProfit = pricePlatinum - pricePurchase
 		}
 	case "RESELLER":
 		userPrice = priceReseller
-		if isProfitFixed == "actuve" {
+		if isProfitFixed == "active" {
 			userProfit = profitReseller
 		} else {
 			userProfit = priceReseller - pricePurchase
 		}
 	default:
 		userPrice = price
-		if isProfitFixed == "actuve" {
+		if isProfitFixed == "active" {
 			userProfit = profit
 		} else {
 			userProfit = price - pricePurchase
 		}
 	}
 
-	// Proses voucher jika ada
 	if req.VoucherCode != nil && *req.VoucherCode != "" {
 		calculatedDiscount, err := repo.calculateVoucherDiscount(c, *req.VoucherCode, userPrice)
 		if err != nil {
@@ -121,14 +119,12 @@ func (repo *TransactionRepository) Create(c context.Context, req CreateTransacti
 
 		discount = calculatedDiscount
 		userPrice = userPrice - discount
-		// Perbaiki perhitungan profit setelah diskon
 		userProfit = userPrice - pricePurchase
 		if userProfit < 0 {
-			userProfit = 0 // Pastikan profit tidak negatif
+			userProfit = 0
 		}
 	}
 
-	// Proses fee payment method
 	if req.MethodCode != "SALDO" {
 		calculatedFee, methodNameResult, err := repo.calculatePaymentFee(c, req.MethodCode, userPrice)
 		if err != nil {
@@ -139,21 +135,17 @@ func (repo *TransactionRepository) Create(c context.Context, req CreateTransacti
 		methodName = methodNameResult
 	}
 
-	// Hitung total yang harus dibayar
 	total = userPrice + fee
 
-	// Simpan transaksi dan payment ke database
 	orderID, err := repo.insertTransaction(c, req, userPrice, discount, fee, total, userProfit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transaction: %w", err)
 	}
 
-	// Update usage count voucher jika menggunakan voucher
 	if req.VoucherCode != nil && *req.VoucherCode != "" {
 		err = repo.updateVoucherUsage(c, *req.VoucherCode)
 		if err != nil {
-			// Log error tapi jangan gagalkan transaksi
-			// Bisa ditambahkan logging di sini
+			return nil, nil
 		}
 	}
 
@@ -179,11 +171,11 @@ func (repo *TransactionRepository) Create(c context.Context, req CreateTransacti
 		OrderID: orderID,
 	}, nil
 }
+
 func stringPtr(s string) *string {
 	return &s
 }
 
-// Fungsi helper untuk menghitung diskon voucher
 func (repo *TransactionRepository) calculateVoucherDiscount(c context.Context, voucherCode string, userPrice int) (int, error) {
 	var (
 		discountType  string
@@ -250,12 +242,10 @@ func (repo *TransactionRepository) calculateVoucherDiscount(c context.Context, v
 		return 0, fmt.Errorf("invalid discount type: %s", discountType)
 	}
 
-	// Terapkan batas maksimal diskon
 	if maxDiscount.Valid && float64(discount) > maxDiscount.Float64 {
 		discount = int(maxDiscount.Float64)
 	}
 
-	// Pastikan diskon tidak melebihi harga
 	if discount > userPrice {
 		discount = userPrice
 	}
@@ -263,7 +253,6 @@ func (repo *TransactionRepository) calculateVoucherDiscount(c context.Context, v
 	return discount, nil
 }
 
-// Fungsi helper untuk menghitung fee payment method
 func (repo *TransactionRepository) calculatePaymentFee(c context.Context, methodCode string, userPrice int) (int, string, error) {
 	var (
 		feeValue   float64
@@ -271,7 +260,6 @@ func (repo *TransactionRepository) calculatePaymentFee(c context.Context, method
 		methodName string
 	)
 
-	// Perbaiki query - tambahkan FROM clause
 	queryFee := `
 		SELECT 
 			fee,
@@ -292,8 +280,7 @@ func (repo *TransactionRepository) calculatePaymentFee(c context.Context, method
 	var calculatedFee int
 	switch strings.ToUpper(feeType) {
 	case "PERCENTAGE":
-		result := float64(userPrice) * (0.7 / 100)
-		calculatedFee = int(math.Ceil(result)) // Bulatkan ke atas
+		calculatedFee = utils.CalculateFeeQris(userPrice)
 	case "FIXED":
 		calculatedFee = int(feeValue)
 	default:
@@ -302,10 +289,12 @@ func (repo *TransactionRepository) calculatePaymentFee(c context.Context, method
 
 	return calculatedFee, methodName, nil
 }
+
 func (repo *TransactionRepository) insertTransaction(c context.Context, req CreateTransaction,
 	userPrice, discount, fee, total, userProfit int) (string, error) {
 
-	orderID := fmt.Sprintf("TRX%d", time.Now().Unix())
+	prefix := "VAZZ"
+	orderID := utils.GenerateUniqeID(&prefix)
 
 	tx, err := repo.db.BeginTx(c, nil)
 	if err != nil {
@@ -313,7 +302,6 @@ func (repo *TransactionRepository) insertTransaction(c context.Context, req Crea
 	}
 	defer tx.Rollback()
 
-	// --- STEP 1: Ambil service name terlebih dahulu ---
 	var serviceName string
 	serviceQuery := `SELECT service_name FROM services WHERE provider_id = $1`
 	err = tx.QueryRowContext(c, serviceQuery, req.ProductCode).Scan(&serviceName)
@@ -321,7 +309,6 @@ func (repo *TransactionRepository) insertTransaction(c context.Context, req Crea
 		return "", fmt.Errorf("failed to get service name: %w", err)
 	}
 
-	// --- STEP 2: INSERT TRANSACTION terlebih dahulu ---
 	insertTransactionQuery := `
 		INSERT INTO transactions (
 			order_id, username, purchase_price, discount, user_id, zone, 
@@ -345,15 +332,14 @@ func (repo *TransactionRepository) insertTransaction(c context.Context, req Crea
 		userProfit,
 		userProfit,
 		"PENDING",
-		"false", // is_digi
-		"false", // success_report_sent
-		"game",
+		"active",
+		"active",
+		"TOPUP",
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to insert transaction: %w", err)
 	}
 
-	// --- STEP 3: INSERT PAYMENT setelah transaction ada ---
 	insertPaymentQuery := `
 		INSERT INTO payments (
 			order_id, price, total_amount, buyer_number, fee, 
@@ -365,7 +351,7 @@ func (repo *TransactionRepository) insertTransaction(c context.Context, req Crea
 
 	_, err = tx.ExecContext(c, insertPaymentQuery,
 		orderID,
-		fmt.Sprintf("%d", userPrice), // string format
+		fmt.Sprintf("%d", userPrice),
 		total,
 		req.WhatsApp,
 		fee,
@@ -385,7 +371,6 @@ func (repo *TransactionRepository) insertTransaction(c context.Context, req Crea
 	return orderID, nil
 }
 
-// Fungsi helper untuk update usage count voucher
 func (repo *TransactionRepository) updateVoucherUsage(c context.Context, voucherCode string) error {
 	updateQuery := `
 		UPDATE vouchers 
