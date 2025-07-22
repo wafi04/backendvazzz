@@ -75,10 +75,8 @@ func NewDuitkuService(duitkuKey, duitkuMerchantCode string) *DuitkuService {
 }
 
 func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCreateTransactionParams) (*DuitkuCreateTransactionResponse, error) {
-	// Generate signature using MD5
 	signature := s.generateSignature(params.MerchantOrderId, params.PaymentAmount)
 
-	// Prepare payload
 	payload := map[string]interface{}{
 		"merchantCode":    s.DuitkuMerchantCode,
 		"paymentAmount":   params.PaymentAmount,

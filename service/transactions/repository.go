@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -22,7 +21,6 @@ func NewTransactionsRepository(DB *sql.DB) *TransactionsRepository {
 	}
 }
 
-// GetByID method untuk mengambil transaction berdasarkan ID
 func (repo *TransactionsRepository) GetByID(id int64) (*types.Transaction, error) {
 	query := `
 		SELECT id, order_id, product_code, method_code, game_id, zone, voucher_code,
@@ -61,7 +59,6 @@ func (repo *TransactionsRepository) GetByID(id int64) (*types.Transaction, error
 	return &transaction, nil
 }
 
-// GetByOrderID method untuk mengambil transaction berdasarkan Order ID
 func (repo *TransactionsRepository) GetByOrderID(orderId string) (*types.Transaction, error) {
 	query := `
 		SELECT id, order_id, product_code, method_code, game_id, zone, voucher_code,
@@ -100,7 +97,6 @@ func (repo *TransactionsRepository) GetByOrderID(orderId string) (*types.Transac
 	return &transaction, nil
 }
 
-// GetByGameID method untuk mengambil transactions berdasarkan game ID
 func (repo *TransactionsRepository) GetByGameID(gameId string) ([]types.Transaction, error) {
 	query := `
 		SELECT   order_id, username, purchase_price, discount, user_id, zone,
@@ -148,7 +144,6 @@ func (repo *TransactionsRepository) GetByGameID(gameId string) ([]types.Transact
 	return transactions, nil
 }
 
-// UpdateStatus method untuk update status transaction
 func (repo *TransactionsRepository) UpdateStatus(id int64, status string) error {
 	query := `
 		UPDATE transactions 
@@ -169,10 +164,6 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 	args := []interface{}{}
 	argIndex := 1
 
-	// Debug log parameter yang masuk
-	log.Printf("Repository GetAllWithPayment called with: Limit=%d, Page=%d, Type=%s", req.Limit, req.Page, req.Type)
-
-	// Search filter (username atau order_id)
 	if req.Search != nil && *req.Search != "" {
 		whereConditions = append(whereConditions,
 			fmt.Sprintf("(t.username ILIKE $%d OR t.order_id ILIKE $%d)", argIndex, argIndex))
@@ -181,21 +172,18 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 		argIndex++
 	}
 
-	// Type filter (transaction_type)
 	if req.Type != "" {
 		whereConditions = append(whereConditions, fmt.Sprintf("t.transaction_type = $%d", argIndex))
 		args = append(args, req.Type)
 		argIndex++
 	}
 
-	// Status filter
 	if req.Status != nil && *req.Status != "" {
 		whereConditions = append(whereConditions, fmt.Sprintf("t.status = $%d", argIndex))
 		args = append(args, *req.Status)
 		argIndex++
 	}
 
-	// Date range filter
 	if req.StartDate != nil && *req.StartDate != "" {
 		whereConditions = append(whereConditions, fmt.Sprintf("DATE(t.created_at) >= $%d", argIndex))
 		args = append(args, *req.StartDate)
@@ -210,24 +198,17 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 
 	whereClause := strings.Join(whereConditions, " AND ")
 
-	// Count query
 	countQuery := fmt.Sprintf(`
 		SELECT COUNT(*) 
 		FROM transactions t
 		LEFT JOIN payments p ON t.order_id = p.order_id
 		WHERE %s`, whereClause)
 
-	log.Printf("Count Query: %s", countQuery)
-	log.Printf("Query Args: %v", args)
-
 	var totalCount int
 	err := repo.DB.QueryRowContext(c, countQuery, args...).Scan(&totalCount)
 	if err != nil {
-		log.Printf("GetAllWithPayment count error: %v", err)
 		return nil, 0, err
 	}
-
-	log.Printf("Total count found: %d", totalCount)
 
 	if totalCount == 0 {
 		return []model.TransactionWithPayment{}, 0, nil
@@ -235,7 +216,6 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 
 	offset := (req.Page - 1) * req.Limit
 
-	// Main query with JOIN
 	query := fmt.Sprintf(`
 		SELECT 
 			t.id, t.order_id, t.username, t.purchase_price, t.discount, t.user_id, t.zone,
@@ -243,7 +223,6 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 			t.provider_order_id, t.status, t.log, t.serial_number, t.is_re_order,
 			t.transaction_type, t.is_digi, t.ref_id, t.success_report_sent,
 			t.created_at, t.updated_at,
-			-- Payment detail fields (nullable)
 			p.order_id as payment_order_id, p.price as payment_price, p.total_amount,
 			p.payment_number, p.buyer_number, p.fee, p.fee_amount,
 			p.status as payment_status, p.method, p.reference,
@@ -256,12 +235,8 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 
 	args = append(args, req.Limit, offset)
 
-	log.Printf("Main Query: %s", query)
-	log.Printf("Final Args: %v", args)
-
 	rows, err := repo.DB.QueryContext(c, query, args...)
 	if err != nil {
-		log.Printf("GetAllWithPayment query error: %v", err)
 		return nil, 0, err
 	}
 	defer rows.Close()
@@ -300,7 +275,6 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 			&transaction.SuccessReportSent,
 			&transaction.CreatedAt,
 			&transaction.UpdatedAt,
-			// Payment fields (nullable)
 			&paymentOrderID,
 			&paymentPrice,
 			&totalAmount,
@@ -315,11 +289,9 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 			&paymentUpdatedAt,
 		)
 		if err != nil {
-			log.Printf("Row scan error: %v", err)
 			return nil, 0, err
 		}
 
-		// Create PaymentDetail only if payment data exists
 		if paymentOrderID.Valid {
 			transaction.PaymentDetail = &model.PaymentDetail{
 				OrderID:       paymentOrderID.String,
@@ -341,10 +313,8 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 	}
 
 	if err = rows.Err(); err != nil {
-		log.Printf("Rows iteration error: %v", err)
 		return nil, 0, err
 	}
 
-	log.Printf("Successfully retrieved %d transactions with payment details", len(transactions))
 	return transactions, totalCount, nil
 }
