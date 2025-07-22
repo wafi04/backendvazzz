@@ -58,43 +58,51 @@ func (repo *TransactionsRepository) GetByID(id int64) (*types.Transaction, error
 
 	return &transaction, nil
 }
-
-func (repo *TransactionsRepository) GetByOrderID(orderId string) (*types.Transaction, error) {
+func (repo *TransactionsRepository) GetInvoiceByID(id string) (*model.Invoice, error) {
 	query := `
-		SELECT id, order_id, product_code, method_code, game_id, zone, voucher_code,
-			   whatsapp_number, nickname, username, ip, user_agent,
-			   status, purchase_price, web_price, duitku_price, 
-			   created_at, updated_at, completed_at
-		FROM transactions WHERE order_id = $1`
+		SELECT
+			t.order_id,
+			t.username,
+			t.discount,
+			t.nickname,
+			t.user_id,
+			t.zone,
+			t.message,
+			t.serial_number,
+			t.status,
+			t.created_at,
+			COALESCE(p.total_amount, 0) AS total_amount,
+			COALESCE(p.status, '') AS payment_status,
+			COALESCE(p.method, '') AS method,
+			t.updated_at
+		FROM transactions t
+		LEFT JOIN payments p ON t.order_id = p.order_id
+		WHERE t.order_id = $1
+	`
 
-	var transaction types.Transaction
-	err := repo.DB.QueryRow(query, orderId).Scan(
-		&transaction.ID,
-		&transaction.OrderId,
-		&transaction.ProductCode,
-		&transaction.MethodCode,
-		&transaction.GameId,
-		&transaction.Zone,
-		&transaction.VoucherCode,
-		&transaction.WhatsAppNumber,
-		&transaction.Nickname,
-		&transaction.Username,
-		&transaction.Ip,
-		&transaction.UserAgent,
-		&transaction.Status,
-		&transaction.PurchasePrice,
-		&transaction.WebPrice,
-		&transaction.DuitkuPrice,
-		&transaction.CreatedAt,
-		&transaction.UpdatedAt,
-		&transaction.CompletedAt,
+	var invoice model.Invoice
+	err := repo.DB.QueryRow(query, id).Scan(
+		&invoice.OrderID,
+		&invoice.Username,
+		&invoice.Discount,
+		&invoice.Nickname,
+		&invoice.UserID,
+		&invoice.Zone,
+		&invoice.Message,
+		&invoice.SerialNumber,
+		&invoice.Status,
+		&invoice.CreatedAt,
+		&invoice.TotalAmount,
+		&invoice.PaymentStatus,
+		&invoice.Method,
+		&invoice.UpdatedAt,
 	)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &transaction, nil
+	return &invoice, nil
 }
 
 func (repo *TransactionsRepository) GetByGameID(gameId string) ([]types.Transaction, error) {

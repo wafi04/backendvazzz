@@ -97,3 +97,16 @@ func (h *TransactionHandler) GetAll(c *gin.Context) {
 
 	utils.SuccessResponse(c, http.StatusOK, "Transactions retrieved successfully", response)
 }
+
+func (h *TransactionHandler) Invoice(c *gin.Context) {
+	idParam := c.Param("id")
+
+	data, err := h.transactionRepo.GetInvoiceByID(idParam)
+	if err != nil {
+		log.Printf("Repository error: %v", err)
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Failed to fetch transactions", err.Error())
+		return
+	}
+	utils.SuccessResponse(c, http.StatusOK, "Transactions retrieved successfully", data)
+
+}

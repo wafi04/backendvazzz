@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/wafi04/backendvazzz/pkg/lib"
 )
 
 type CreatePaymentUsingSaldo struct {
@@ -11,8 +13,7 @@ type CreatePaymentUsingSaldo struct {
 	OrderID  string
 	Total    int
 	WhatsApp string
-	FeeType  string
-	Fee      int
+	NoTujuan string
 	Price    int
 	Tx       *sql.Tx
 }
@@ -23,6 +24,26 @@ type ResponsePaymentSaldo struct {
 }
 
 func (repo *TransactionRepository) PaymentUsingSaldo(c context.Context, req CreatePaymentUsingSaldo) (*ResponsePaymentSaldo, error) {
+	digiflazz := lib.NewDigiflazzService(lib.DigiConfig{
+		DigiKey:      "f99884cd-b12d-5f6e-abf2-90d60f297bda",
+		DigiUsername: "casoyeDa3zJg",
+	})
+	digi, err := digiflazz.TopUp(c, lib.CreateTransactionToDigiflazz{
+		Username:     "casoyeDa3zJg",
+		BuyerSKUCode: "CHECKIDS",
+		CustomerNo:   req.NoTujuan,
+		RefID:        req.OrderID,
+	})
+
+	fmt.Printf("Digiflazz Response: %+v\n", digi)
+
+	if err != nil {
+		return &ResponsePaymentSaldo{
+			Success: false,
+			OrderID: "",
+		}, fmt.Errorf("failed to insert payment: %w", err)
+	}
+
 	insertPaymentQuery := `
 		INSERT INTO payments (
 			order_id, price, total_amount, buyer_number, fee, 
@@ -32,13 +53,13 @@ func (repo *TransactionRepository) PaymentUsingSaldo(c context.Context, req Crea
 		)
 	`
 
-	_, err := req.Tx.ExecContext(c, insertPaymentQuery,
+	_, err = req.Tx.ExecContext(c, insertPaymentQuery,
 		req.OrderID,
 		fmt.Sprintf("%d", req.Price),
 		req.Total,
 		req.WhatsApp,
-		req.Fee,
-		req.Fee,
+		0,
+		0,
 		"PENDING",
 		"SALDO",
 	)

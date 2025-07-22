@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -21,7 +22,9 @@ type DuitkuCreateTransactionParams struct {
 	Cust            *string `json:"cust,omitempty"`
 	CallbackUrl     *string `json:"callbackUrl,omitempty"`
 	ReturnUrl       *string `json:"returnUrl,omitempty"`
-	NoWa            string  `json:"noWa"`
+}
+
+type Duitku struct {
 }
 
 type ResponseFromDuitkuCheckTransaction struct {
@@ -37,16 +40,16 @@ type ResponseFromDuitkuCheckTransaction struct {
 }
 
 type DuitkuCreateTransactionResponse struct {
-	Status        string      `json:"status"`
-	Code          string      `json:"code"`
-	Message       string      `json:"message"`
-	Data          interface{} `json:"data"`
-	PaymentUrl    string      `json:"paymentUrl,omitempty"`
-	VaNumber      string      `json:"vaNumber,omitempty"`
-	Amount        string      `json:"amount,omitempty"`
-	Reference     string      `json:"reference,omitempty"`
-	StatusCode    string      `json:"statusCode,omitempty"`
-	StatusMessage string      `json:"statusMessage,omitempty"`
+	Status        string `json:"status"`
+	Code          string `json:"code"`
+	Message       string `json:"message"`
+	QRCode        string `json:"qrCode,omitempty"`
+	VANumber      string `json:"vaNumber,omitempty"`
+	PaymentUrl    string `json:"paymentUrl,omitempty"`
+	Amount        string `json:"amount,omitempty"`
+	Reference     string `json:"reference,omitempty"`
+	StatusCode    string `json:"statusCode,omitempty"`
+	StatusMessage string `json:"statusMessage,omitempty"`
 }
 
 type DuitkuService struct {
@@ -60,10 +63,23 @@ type DuitkuService struct {
 	HttpClient            *http.Client
 }
 
-func NewDuitkuService(duitkuKey, duitkuMerchantCode string) *DuitkuService {
+type PaymentResponse struct {
+	MerchantOrderId string `json:"merchantOrderId"`
+	Signature       string `json:"signature"`
+	Timestamp       string `json:"timestamp"`
+	PaymentUrl      string `json:"paymentUrl"`
+	QRCode          string `json:"qrCode,omitempty"`
+	VANumber        string `json:"vaNumber,omitempty"`
+	Amount          string `json:"amount"`
+	Reference       string `json:"reference"`
+	StatusCode      string `json:"statusCode"`
+	StatusMessage   string `json:"statusMessage"`
+}
+
+func NewDuitkuService() *DuitkuService {
 	return &DuitkuService{
-		DuitkuKey:             duitkuKey,
-		DuitkuMerchantCode:    duitkuMerchantCode,
+		// DuitkuKey:             "D16328",
+		// DuitkuMerchantCode:    "9ecc7819ac45c6f63e4351e0329dc123",
 		BaseUrl:               "https://passport.duitku.com/webapi/api/merchant/v2/inquiry",
 		SandboxUrl:            "https://sandbox.duitku.com/webapi/api/merchant/v2/inquiry",
 		BaseUrlGetTransaction: "https://passport.duitku.com/webapi/api/merchant/transactionStatus",
@@ -75,7 +91,10 @@ func NewDuitkuService(duitkuKey, duitkuMerchantCode string) *DuitkuService {
 }
 
 func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCreateTransactionParams) (*DuitkuCreateTransactionResponse, error) {
+	log.Printf("INFO: Attempting to create Duitku transaction for order: %s\n", params.MerchantOrderId)
+
 	signature := s.generateSignature(params.MerchantOrderId, params.PaymentAmount)
+	log.Printf("DEBUG: Generated signature: %s\n", signature)
 
 	payload := map[string]interface{}{
 		"merchantCode":    s.DuitkuMerchantCode,
@@ -84,66 +103,48 @@ func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCre
 		"productDetails":  params.ProductDetails,
 		"paymentMethod":   params.PaymentCode,
 		"signature":       signature,
-		"phoneNumber":     params.NoWa,
 	}
 
-	if params.CallbackUrl != nil {
-		payload["callbackUrl"] = *params.CallbackUrl
-	}
-	if params.ReturnUrl != nil {
-		payload["returnUrl"] = *params.ReturnUrl
-	}
-	if s.DuitkuExpiryPeriod != nil {
-		payload["expiryPeriod"] = *s.DuitkuExpiryPeriod
-	}
+	log.Printf("DEBUG: Duitku Request Payload: %+v\n", payload)
 
-	// Make HTTP request
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return s.createErrorResponse(params.MerchantOrderId, fmt.Sprintf("Failed to marshal request: %v", err)), nil
+		log.Printf("ERROR: Failed to marshal request for order %s: %v\n", params.MerchantOrderId, err)
+		return nil, nil
 	}
+	log.Printf("DEBUG: Duitku Request JSON: %s\n", string(jsonData))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", s.BaseUrl, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return s.createErrorResponse(params.MerchantOrderId, fmt.Sprintf("Failed to create request: %v", err)), nil
+		log.Printf("ERROR: Failed to create request for order %s: %v\n", params.MerchantOrderId, err)
+		return nil, nil
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := s.HttpClient.Do(req)
 	if err != nil {
-		return s.createErrorResponse(params.MerchantOrderId, fmt.Sprintf("Failed to send request: %v", err)), nil
+		log.Printf("ERROR: Failed to send request for order %s: %v\n", params.MerchantOrderId, err)
+		return nil, nil
 	}
 	defer resp.Body.Close()
 
+	log.Printf("INFO: Duitku Response Status for order %s: %s\n", params.MerchantOrderId, resp.Status)
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return s.createErrorResponse(params.MerchantOrderId, fmt.Sprintf("Failed to read response: %v", err)), nil
+		log.Printf("ERROR: Failed to read response body for order %s: %v\n", params.MerchantOrderId, err)
+		return nil, nil
 	}
+	log.Printf("DEBUG: Duitku Raw Response Body for order %s: %s\n", params.MerchantOrderId, string(body))
 
-	// Parse response
-	var duitkuResponse map[string]interface{}
+	var duitkuResponse DuitkuCreateTransactionResponse
 	if err := json.Unmarshal(body, &duitkuResponse); err != nil {
-		return s.createErrorResponse(params.MerchantOrderId, fmt.Sprintf("Failed to parse response: %v", err)), nil
+		log.Printf("ERROR: Failed to parse SUCCESS response for order %s: %v. Raw body: %s\n", params.MerchantOrderId, err, string(body))
+		return s.createErrorResponse(params.MerchantOrderId, fmt.Sprintf("Failed to parse success response: %v", err)), nil
 	}
-
-	// Create successful response
-	return &DuitkuCreateTransactionResponse{
-		Status:  getStringValue(duitkuResponse, "statusMessage"),
-		Code:    getStringValue(duitkuResponse, "statusCode"),
-		Message: "Transaction created successfully",
-		Data: map[string]interface{}{
-			"merchantOrderId": params.MerchantOrderId,
-			"signature":       signature,
-			"timestamp":       time.Now().Format(time.RFC3339),
-			"paymentUrl":      getStringValue(duitkuResponse, "paymentUrl"),
-			"vaNumber":        getStringValue(duitkuResponse, "vaNumber"),
-			"amount":          getStringValue(duitkuResponse, "amount"),
-			"reference":       getStringValue(duitkuResponse, "reference"),
-			"statusCode":      getStringValue(duitkuResponse, "statusCode"),
-			"statusMessage":   getStringValue(duitkuResponse, "statusMessage"),
-		},
-	}, nil
+	log.Printf("INFO: Duitku Parsed Success Response for order %s: %+v\n", params.MerchantOrderId, duitkuResponse)
+	return &duitkuResponse, nil
 }
 
 func (s *DuitkuService) GetSaldo(ctx context.Context, email string) (map[string]interface{}, error) {
@@ -192,13 +193,8 @@ func (s *DuitkuService) GetSaldo(ctx context.Context, email string) (map[string]
 }
 
 func (s *DuitkuService) generateSignature(merchantOrderId string, paymentAmount int) string {
-	var signatureString string
 
-	if paymentAmount > 0 {
-		signatureString = s.DuitkuMerchantCode + merchantOrderId + strconv.Itoa(paymentAmount) + s.DuitkuKey
-	} else {
-		signatureString = s.DuitkuMerchantCode + merchantOrderId + s.DuitkuKey
-	}
+	signatureString := s.DuitkuMerchantCode + merchantOrderId + strconv.Itoa(paymentAmount) + s.DuitkuKey
 
 	h := md5.New()
 	h.Write([]byte(signatureString))
@@ -209,18 +205,5 @@ func (s *DuitkuService) createErrorResponse(merchantOrderId, errorMessage string
 	return &DuitkuCreateTransactionResponse{
 		Status:  "false",
 		Message: errorMessage,
-		Data: map[string]interface{}{
-			"merchantOrderId": merchantOrderId,
-			"timestamp":       time.Now().Format(time.RFC3339),
-		},
 	}
-}
-
-func getStringValue(data map[string]interface{}, key string) string {
-	if val, exists := data[key]; exists {
-		if str, ok := val.(string); ok {
-			return str
-		}
-	}
-	return ""
 }

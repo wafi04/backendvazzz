@@ -287,7 +287,8 @@ func (repo *ProductRepository) GetAll(categoryId, subCategoryID int, role string
 		is_flash_sale,
 		created_at,
 		updated_at
-	FROM services`
+	FROM services
+	`
 
 	var conditions []string
 	var args []interface{}
@@ -313,7 +314,7 @@ func (repo *ProductRepository) GetAll(categoryId, subCategoryID int, role string
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	query += " ORDER BY created_at DESC"
+	query += " ORDER BY price ASC"
 
 	// Query ke DB
 	rows, err := repo.DB.Query(query, args...)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 type ProductData struct {
@@ -48,6 +49,13 @@ type TransactionCreateDigiflazzResponse struct {
 		Price          int    `json:"price"`            // Harga transaksi
 		Tele           string `json:"tele"`             // Kontak Telegram
 		WA             string `json:"wa"`               // Kontak WhatsApp
+	} `json:"data"`
+}
+
+type DigiflazzErrorResponse struct {
+	Data struct {
+		Message string `json:"message"`
+		RC      string `json:"rc"`
 	} `json:"data"`
 }
 
@@ -128,41 +136,62 @@ func (d *DigiflazzService) CheckPrice() ([]*ProductData, error) {
 	return nil, fmt.Errorf("failed to unmarshal response. Response body: %s", string(body))
 }
 
-func (d *DigiflazzService) TopUp(c context.Context, req CreateTransactionToDigiflazz) (*TransactionCreateDigiflazzResponse, error) {
-	sign := d.generateSign(d.config.DigiUsername, d.config.DigiKey, req.RefID)
+func (d *DigiflazzService) TopUp(ctx context.Context, req CreateTransactionToDigiflazz) (*TransactionCreateDigiflazzResponse, error) {
+	// Generate signature
+	data := d.config.DigiUsername + d.config.DigiKey + req.RefID
+	hash := md5.Sum([]byte(data))
+	sign := fmt.Sprintf("%x", hash)
 
 	requestPayload := map[string]interface{}{
 		"username":       d.config.DigiUsername,
 		"buyer_sku_code": req.BuyerSKUCode,
 		"customer_no":    req.CustomerNo,
-		"sign":           sign,
 		"ref_id":         req.RefID,
-		"cb_url":         "",
+		"sign":           sign,
 	}
 
-	// Convert to JSON
 	jsonData, err := json.Marshal(requestPayload)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %v", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Make HTTP request
-	resp, err := http.Post("https://api.digiflazz.com/v1/transaction", "application/json", bytes.NewBuffer(jsonData))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", "https://api.digiflazz.com/v1/transaction", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", "DigiflazzClient/1.0")
+
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned status code: %d, body: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	var apiResponse TransactionCreateDigiflazzResponse
+	if err := json.Unmarshal(body, &apiResponse); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w, body: %s", err, string(body))
+	}
 
-	return &apiResponse, nil
+	switch apiResponse.Data.Status {
+	case "Sukses":
+		return &apiResponse, nil
+	case "Pending":
+		return &apiResponse, nil
+	case "Gagal":
+		return &apiResponse, nil
+	default:
+		return &apiResponse, nil
+	}
+
 }

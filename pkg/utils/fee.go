@@ -2,7 +2,6 @@ package utils
 
 import (
 	"fmt"
-	"math"
 	"sync"
 	"time"
 )
@@ -15,8 +14,7 @@ var (
 
 func CalculateFeeQris(amount int) int {
 	result := float64(amount) * (0.7 / 100)
-	calculatedFee := int(math.Ceil(result))
-	return calculatedFee
+	return int(result)
 }
 
 func GenerateUniqeID(prefix *string) string {

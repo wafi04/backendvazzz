@@ -69,3 +69,20 @@ type FilterTransaction struct {
 	EndDate   *string `json:"endDate,omitempty"`
 	Status    *string `json:"status,omitempty"`
 }
+
+type Invoice struct {
+	OrderID       string    `json:"orderId" db:"order_id"`
+	Username      *string   `json:"username,omitempty" db:"username"`
+	Discount      int       `json:"discount" db:"discount"`
+	Nickname      *string   `json:"nickname,omitempty" db:"nickname"`
+	UserID        string    `json:"userId" db:"user_id"`
+	Zone          string    `json:"zone" db:"zone"`
+	Message       *string   `json:"message,omitempty" db:"message"`
+	SerialNumber  *string   `json:"serialNumber,omitempty" db:"serial_number"`
+	Status        string    `json:"status" db:"status"`
+	CreatedAt     time.Time `json:"createdAt" db:"created_at"`
+	TotalAmount   int       `json:"totalAmount" db:"total_amount"`
+	PaymentStatus string    `json:"paymentStatus" db:"status"`
+	Method        string    `json:"method" db:"method"`
+	UpdatedAt     time.Time `json:"updatedAt" db:"updated_at"`
+}

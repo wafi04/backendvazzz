@@ -10,6 +10,18 @@ import (
 	"github.com/wafi04/backendvazzz/service/transactions"
 )
 
+type RequestFromClient struct {
+	ProductCode string  `json:"productCode" validate:"required"`
+	MethodCode  string  `json:"methodCode" validate:"required"`
+	WhatsApp    string  `json:"whatsapp" validate:"required"`
+	VoucherCode *string `json:"voucherCode,omitempty"`
+	GameId      string  `json:"gameId" validate:"required"`
+	Zone        *string `json:"zone,omitempty"`
+}
+
+func StringPtr(s string) *string {
+	return &s
+}
 func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 	transactionRepo := transaction.NewTransactionRepository(db)
 	transactionsRepo := transactions.NewTransactionsRepository(db)
@@ -17,8 +29,9 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 
 	r := api.Group("/transactions")
 	{
+
 		r.POST("", func(ctx *gin.Context) {
-			var input transaction.CreateTransaction
+			var input RequestFromClient
 			if err := ctx.ShouldBindJSON(&input); err != nil {
 				utils.ErrorResponse(ctx, http.StatusBadRequest, "Invalid input", err.Error())
 				return
@@ -42,7 +55,32 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 				return
 			}
 
-			response, err := transactionRepo.Create(ctx, input)
+			var usernamePtr *string
+			if u, ok := ctx.Get("username"); ok {
+				if usernameStr, isString := u.(string); isString {
+					usernamePtr = StringPtr(usernameStr)
+				}
+			}
+
+			// fmt.Printf("%s", *usernamePtr)
+
+			var rolePtr *string
+			if r, ok := ctx.Get("role"); ok {
+				if roleStr, isString := r.(string); isString {
+					rolePtr = StringPtr(roleStr)
+				}
+			}
+
+			response, err := transactionRepo.Create(ctx, transaction.CreateTransaction{
+				ProductCode: input.ProductCode,
+				MethodCode:  input.MethodCode,
+				WhatsApp:    input.WhatsApp,
+				Username:    usernamePtr,
+				Role:        rolePtr,
+				VoucherCode: input.VoucherCode,
+				GameId:      input.GameId,
+				Zone:        input.Zone,
+			})
 			if err != nil {
 				utils.ErrorResponse(ctx, http.StatusInternalServerError, "Failed to create transaction", err.Error())
 				return
@@ -52,6 +90,7 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 		})
 
 		r.GET("", transactionsHandler.GetAll)
+		r.GET("/invoice/:id", transactionsHandler.Invoice)
 	}
 
 }
