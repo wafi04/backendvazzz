@@ -272,24 +272,26 @@ func (repo *TransactionRepository) insertPaymentRecord(ctx context.Context, tx *
 	})
 
 	if err != nil {
-		return nil
+		return err
 	}
 
 	insertPaymentQuery := `
         INSERT INTO payments (
             order_id, price, total_amount, buyer_number, fee,
-            fee_amount, status, method,payment_number, created_at
+            fee_amount, status, method, payment_number, created_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8,$9, NOW()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW()
         )
     `
-	paymentNumber := duitku.PaymentUrl
+
+	var paymentNumber string
 	if duitku.VANumber != "" {
-		paymentNumber = duitku.QRCode
-	} else {
 		paymentNumber = duitku.VANumber
+	} else if duitku.QrString != "" {
+		paymentNumber = duitku.QrString
+	} else {
+		paymentNumber = duitku.PaymentUrl
 	}
-	fmt.Printf("%s", paymentNumber)
 
 	_, err = tx.ExecContext(ctx, insertPaymentQuery,
 		orderID,
