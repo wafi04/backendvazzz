@@ -12,9 +12,6 @@ import (
 	"github.com/wafi04/backendvazzz/pkg/config"
 )
 
-// SyncManager manages the periodic sync process
-
-// getSyncManager returns the global sync manager with thread-safe initialization
 func getSyncManager(db *sql.DB) *config.SyncManager {
 	config.SyncManagerMutex.Lock()
 	defer config.SyncManagerMutex.Unlock()
@@ -26,15 +23,11 @@ func getSyncManager(db *sql.DB) *config.SyncManager {
 }
 
 func GetProductFromDigiflazz(r *gin.RouterGroup, db *sql.DB) {
-	// Get thread-safe sync manager instance
 	syncManager := getSyncManager(db)
 
-	// Sub-route: /sync
 	digRoutes := r.Group("/sync")
 
-	// GET /sync - Manual sync
 	digRoutes.GET("/", func(c *gin.Context) {
-		// Check if sync is already in progress
 		if syncManager.IsSyncing {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"error":   "Sync already in progress",
@@ -43,11 +36,9 @@ func GetProductFromDigiflazz(r *gin.RouterGroup, db *sql.DB) {
 			return
 		}
 
-		// Manual sync (same as before but optimized)
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 		defer cancel()
 
-		// Set syncing state for manual sync
 		syncManager.SyncMutex.Lock()
 		syncManager.Mutex.Lock()
 		if syncManager.IsSyncing {
@@ -62,7 +53,6 @@ func GetProductFromDigiflazz(r *gin.RouterGroup, db *sql.DB) {
 		syncManager.IsSyncing = true
 		syncManager.Mutex.Unlock()
 
-		// Ensure we reset the syncing state
 		defer func() {
 			syncManager.Mutex.Lock()
 			syncManager.IsSyncing = false
@@ -89,14 +79,12 @@ func GetProductFromDigiflazz(r *gin.RouterGroup, db *sql.DB) {
 			return
 		}
 
-		// Process in batches
-		batchSize := 50 // Smaller batch for manual sync
+		batchSize := 50
 		successCount := 0
 		errorCount := 0
 		var errors []string
 
 		for i := 0; i < len(products); i += batchSize {
-			// Check if context is cancelled
 			select {
 			case <-ctx.Done():
 				c.JSON(http.StatusRequestTimeout, gin.H{
@@ -119,7 +107,6 @@ func GetProductFromDigiflazz(r *gin.RouterGroup, db *sql.DB) {
 					continue
 				}
 
-				// Check if exists and update/create
 				exists, err := syncManager.ProductExists(ctx, product.BuyerSkuCode)
 				if err != nil {
 					errors = append(errors, fmt.Sprintf("Error checking %s: %v", product.ProductName, err))
@@ -157,7 +144,6 @@ func GetProductFromDigiflazz(r *gin.RouterGroup, db *sql.DB) {
 		c.JSON(http.StatusOK, response)
 	})
 
-	// POST /sync/start - Start automatic sync
 	digRoutes.POST("/start", func(c *gin.Context) {
 		if syncManager.IsRunning {
 			c.JSON(http.StatusOK, gin.H{
@@ -174,7 +160,6 @@ func GetProductFromDigiflazz(r *gin.RouterGroup, db *sql.DB) {
 		})
 	})
 
-	// POST /sync/stop - Stop automatic sync
 	digRoutes.POST("/stop", func(c *gin.Context) {
 		if !syncManager.IsRunning {
 			c.JSON(http.StatusOK, gin.H{
@@ -191,7 +176,6 @@ func GetProductFromDigiflazz(r *gin.RouterGroup, db *sql.DB) {
 		})
 	})
 
-	// GET /sync/status - Check sync status
 	digRoutes.GET("/status", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":     "success",

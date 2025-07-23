@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -91,10 +90,8 @@ func NewDuitkuService() *DuitkuService {
 }
 
 func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCreateTransactionParams) (*DuitkuCreateTransactionResponse, error) {
-	log.Printf("INFO: Attempting to create Duitku transaction for order: %s\n", params.MerchantOrderId)
 
 	signature := s.generateSignature(params.MerchantOrderId, params.PaymentAmount)
-	log.Printf("DEBUG: Generated signature: %s\n", signature)
 
 	payload := map[string]interface{}{
 		"merchantCode":    s.DuitkuMerchantCode,
@@ -105,18 +102,13 @@ func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCre
 		"signature":       signature,
 	}
 
-	log.Printf("DEBUG: Duitku Request Payload: %+v\n", payload)
-
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("ERROR: Failed to marshal request for order %s: %v\n", params.MerchantOrderId, err)
 		return nil, nil
 	}
-	log.Printf("DEBUG: Duitku Request JSON: %s\n", string(jsonData))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", s.BaseUrl, bytes.NewBuffer(jsonData))
 	if err != nil {
-		log.Printf("ERROR: Failed to create request for order %s: %v\n", params.MerchantOrderId, err)
 		return nil, nil
 	}
 
@@ -124,26 +116,19 @@ func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCre
 
 	resp, err := s.HttpClient.Do(req)
 	if err != nil {
-		log.Printf("ERROR: Failed to send request for order %s: %v\n", params.MerchantOrderId, err)
 		return nil, nil
 	}
 	defer resp.Body.Close()
 
-	log.Printf("INFO: Duitku Response Status for order %s: %s\n", params.MerchantOrderId, resp.Status)
-
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("ERROR: Failed to read response body for order %s: %v\n", params.MerchantOrderId, err)
 		return nil, nil
 	}
-	log.Printf("DEBUG: Duitku Raw Response Body for order %s: %s\n", params.MerchantOrderId, string(body))
 
 	var duitkuResponse DuitkuCreateTransactionResponse
 	if err := json.Unmarshal(body, &duitkuResponse); err != nil {
-		log.Printf("ERROR: Failed to parse SUCCESS response for order %s: %v. Raw body: %s\n", params.MerchantOrderId, err, string(body))
 		return s.createErrorResponse(params.MerchantOrderId, fmt.Sprintf("Failed to parse success response: %v", err)), nil
 	}
-	log.Printf("INFO: Duitku Parsed Success Response for order %s: %+v\n", params.MerchantOrderId, duitkuResponse)
 	return &duitkuResponse, nil
 }
 

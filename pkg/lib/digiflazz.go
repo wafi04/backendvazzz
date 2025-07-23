@@ -30,7 +30,6 @@ type ProductData struct {
 }
 
 type CreateTransactionToDigiflazz struct {
-	Username     string `json:"username"`
 	BuyerSKUCode string `json:"buyer_sku_code"`
 	CustomerNo   string `json:"customer_no"`
 	RefID        string `json:"ref_id"`

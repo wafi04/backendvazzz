@@ -27,7 +27,6 @@ func (repo *TransactionsRepository) CallbackTransactionFromDuitku(c context.Cont
 	})
 	err := json.Unmarshal(duitkuRawResponseBytes, &data)
 	if err != nil {
-
 		return fmt.Errorf("failed to unmarshal Duitku response: %w", err)
 	}
 
@@ -47,7 +46,6 @@ func (repo *TransactionsRepository) CallbackTransactionFromDuitku(c context.Cont
 		Username          sql.NullString
 	)
 
-	// Mulai transaksi database
 	tx, err := repo.DB.BeginTx(c, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
@@ -120,7 +118,6 @@ func (repo *TransactionsRepository) CallbackTransactionFromDuitku(c context.Cont
 	}
 
 	digiflazz.TopUp(c, lib.CreateTransactionToDigiflazz{
-		Username:     "casoyeDa3zJg",
 		BuyerSKUCode: "CHECKIDS",
 		CustomerNo:   "139600730",
 		RefID:        "casoyeDa3zJg",
@@ -130,5 +127,5 @@ func (repo *TransactionsRepository) CallbackTransactionFromDuitku(c context.Cont
 		return fmt.Errorf("failed to commit transaction for order %s: %w", TrxId, err)
 	}
 
-	return nil // Sukses
+	return nil
 }

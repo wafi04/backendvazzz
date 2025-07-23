@@ -29,7 +29,6 @@ func (repo *TransactionRepository) PaymentUsingSaldo(c context.Context, req Crea
 		DigiUsername: "casoyeDa3zJg",
 	})
 	digi, err := digiflazz.TopUp(c, lib.CreateTransactionToDigiflazz{
-		Username:     "casoyeDa3zJg",
 		BuyerSKUCode: "CHECKIDS",
 		CustomerNo:   req.NoTujuan,
 		RefID:        req.OrderID,
