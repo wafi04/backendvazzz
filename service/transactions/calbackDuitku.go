@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/wafi04/backendvazzz/pkg/config"
 	"github.com/wafi04/backendvazzz/pkg/lib"
@@ -21,20 +22,28 @@ type CallbackDuitku struct {
 
 func (repo *TransactionsRepository) CallbackTransactionFromDuitku(c context.Context, duitkuRawResponseBytes []byte) error {
 	var data CallbackDuitku
+
+	// Unmarshal JSON
+	if err := json.Unmarshal(duitkuRawResponseBytes, &data); err != nil {
+		return fmt.Errorf("failed to unmarshal Duitku response: %w", err)
+	}
+
+	// Log the callback data
+	logJSONBytes, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Duitku log data for order %s: %w", data.MerchantOrderId, err)
+	}
+	log.Printf("Duitku callback data: %s", string(logJSONBytes))
+
 	digiflazz := lib.NewDigiflazzService(lib.DigiConfig{
 		DigiKey:      config.GetEnv("DIGI_KEY", ""),
 		DigiUsername: config.GetEnv("DIGI_USERNAME", ""),
 	})
-	err := json.Unmarshal(duitkuRawResponseBytes, &data)
+
+	err = json.Unmarshal(duitkuRawResponseBytes, &data)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal Duitku response: %w", err)
 	}
-
-	logJSONBytes, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal Duitku log data to JSON for order %s: %w", data.MerchantOrderId, err)
-	}
-	logDataString := string(logJSONBytes)
 
 	var (
 		TrxId             string
@@ -104,7 +113,7 @@ func (repo *TransactionsRepository) CallbackTransactionFromDuitku(c context.Cont
 			log = $1
 		WHERE order_id = $2
 	`
-	result, err := tx.ExecContext(c, queryUpdate, logDataString, TrxId)
+	result, err := tx.ExecContext(c, queryUpdate, "", TrxId)
 	if err != nil {
 		return fmt.Errorf("failed to update transaction status for order %s: %w", TrxId, err)
 	}
@@ -119,8 +128,8 @@ func (repo *TransactionsRepository) CallbackTransactionFromDuitku(c context.Cont
 
 	digiflazz.TopUp(c, lib.CreateTransactionToDigiflazz{
 		BuyerSKUCode: "CHECKIDS",
-		CustomerNo:   "139600730",
-		RefID:        "casoyeDa3zJg",
+		CustomerNo:   "1396007302706",
+		RefID:        data.MerchantOrderId,
 	})
 
 	if err = tx.Commit(); err != nil {

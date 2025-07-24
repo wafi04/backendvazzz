@@ -147,6 +147,7 @@ func (d *DigiflazzService) TopUp(ctx context.Context, req CreateTransactionToDig
 		"customer_no":    req.CustomerNo,
 		"ref_id":         req.RefID,
 		"sign":           sign,
+		"cb_url":         "https://f81191715940.ngrok-free.app/api/transactions/callback/digiflazz",
 	}
 
 	jsonData, err := json.Marshal(requestPayload)

@@ -22,6 +22,15 @@ type RequestFromClient struct {
 func StringPtr(s string) *string {
 	return &s
 }
+
+func GetFromContext(ctx *gin.Context, key string) *string {
+	if val, exists := ctx.Get(key); exists {
+		if str, ok := val.(string); ok {
+			return &str
+		}
+	}
+	return nil
+}
 func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 	transactionRepo := transaction.NewTransactionRepository(db)
 	transactionsRepo := transactions.NewTransactionsRepository(db)
@@ -55,16 +64,17 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 				return
 			}
 
-			var usernamePtr *string
-			if u, ok := ctx.Get("username"); ok {
-				if usernameStr, isString := u.(string); isString {
-					usernamePtr = StringPtr(usernameStr)
-				}
-			}
+			// usernamePtr := GetFromContext(ctx, "username")
+			rolePtr := GetFromContext(ctx, "role")
+
+			// if u, ok := ctx.Get("username"); ok {
+			// 	if usernameStr, isString := u.(string); isString {
+			// 		usernamePtr = StringPtr(usernameStr)
+			// 	}
+			// }
 
 			// fmt.Printf("%s", *usernamePtr)
 
-			var rolePtr *string
 			if r, ok := ctx.Get("role"); ok {
 				if roleStr, isString := r.(string); isString {
 					rolePtr = StringPtr(roleStr)
@@ -75,7 +85,7 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 				ProductCode: input.ProductCode,
 				MethodCode:  input.MethodCode,
 				WhatsApp:    input.WhatsApp,
-				Username:    usernamePtr,
+				Username:    "adminaja",
 				Role:        rolePtr,
 				VoucherCode: input.VoucherCode,
 				GameId:      input.GameId,
@@ -91,6 +101,9 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 
 		r.GET("", transactionsHandler.GetAll)
 		r.GET("/invoice/:id", transactionsHandler.Invoice)
+		r.POST("/callback/digiflazz", transactionsHandler.CallbackDigiflazz)
+		r.POST("/callback/duitku", transactionsHandler.CallbackDuitku)
+
 	}
 
 }

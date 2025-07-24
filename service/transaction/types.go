@@ -16,7 +16,7 @@ type CreateTransaction struct {
 	ProductCode string  `json:"productCode" validate:"required"`
 	MethodCode  string  `json:"methodCode" validate:"required"`
 	WhatsApp    string  `json:"whatsapp" validate:"required"`
-	Username    *string `json:"username,omitempty"`
+	Username    string  `json:"username,omitempty"`
 	Role        *string `json:"role,omitempty"`
 	VoucherCode *string `json:"voucherCode,omitempty"`
 	GameId      string  `json:"gameId" validate:"required"`

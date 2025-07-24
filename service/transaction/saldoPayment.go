@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/wafi04/backendvazzz/pkg/lib"
 )
@@ -68,6 +69,31 @@ func (repo *TransactionRepository) PaymentUsingSaldo(c context.Context, req Crea
 			Success: false,
 			OrderID: "",
 		}, fmt.Errorf("failed to insert payment: %w", err)
+	}
+
+	switch strings.ToUpper(digi.Data.Status) {
+	case "GAGAL":
+		return &ResponsePaymentSaldo{
+			Success: false,
+			OrderID: "",
+		}, nil
+	case "SUKSES", "PENDING":
+		queryUpdate := `
+			UPDATE users
+			SET balance = balance - $1
+			WHERE username = $2
+			`
+		_, err := repo.db.ExecContext(c, queryUpdate, req.Price, req.Username)
+		if err != nil {
+			return &ResponsePaymentSaldo{
+				Success: true,
+				OrderID: req.OrderID,
+			}, fmt.Errorf("failed to insert payment: %w", err)
+		}
+		return &ResponsePaymentSaldo{
+			Success: true,
+			OrderID: req.OrderID,
+		}, nil
 	}
 
 	return &ResponsePaymentSaldo{

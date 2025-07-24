@@ -36,7 +36,7 @@ func (repo *TransactionRepository) Create(ctx context.Context, req CreateTransac
 
 	defer repo.rollbackOnError(tx)
 
-	if req.Username != nil && *req.Username == "" {
+	if req.Username == "" {
 		queryUser := `
 			SELECT role
 			FROM users 
@@ -174,7 +174,7 @@ func (repo *TransactionRepository) processSaldoPayment(ctx context.Context, tx *
 
 	// Process saldo payment
 	_, err := repo.PaymentUsingSaldo(ctx, CreatePaymentUsingSaldo{
-		Username: *req.Username,
+		Username: req.Username,
 		OrderID:  orderID,
 		Total:    total,
 		WhatsApp: req.WhatsApp,
