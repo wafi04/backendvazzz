@@ -214,8 +214,6 @@ func (repo *TransactionRepository) processExternalPayment(ctx context.Context, t
 		return nil, fmt.Errorf("failed to insert payment record: %w", err)
 	}
 
-	// Create external payment with Duitku
-
 	return &CreateTransactionResponse{
 		OrderID: orderID,
 		Total:   total,
@@ -228,18 +226,19 @@ func (repo *TransactionRepository) insertTransaction(ctx context.Context, tx *sq
 
 	insertTransactionQuery := `
         INSERT INTO transactions (
-            order_id, username, purchase_price, discount, user_id, zone,
+            order_id, username,provider_order_id, purchase_price, discount, user_id, zone,
             service_name, price, profit, profit_amount, status, is_digi,
             success_report_sent, transaction_type, created_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,$15, NOW()
         )
     `
 
 	_, err := tx.ExecContext(ctx, insertTransactionQuery,
 		orderID,
 		req.Username,
-		userPrice, // Use userPrice instead of purchasePrice for consistency
+		req.ProductCode,
+		userPrice,
 		discount,
 		req.GameId,
 		req.Zone,

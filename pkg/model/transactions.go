@@ -76,6 +76,7 @@ type Invoice struct {
 	Discount      int       `json:"discount" db:"discount"`
 	Nickname      *string   `json:"nickname,omitempty" db:"nickname"`
 	UserID        string    `json:"userId" db:"user_id"`
+	PaymentNumber string    `json:"paymentNumber"`
 	Zone          string    `json:"zone" db:"zone"`
 	Message       *string   `json:"message,omitempty" db:"message"`
 	SerialNumber  *string   `json:"serialNumber,omitempty" db:"serial_number"`

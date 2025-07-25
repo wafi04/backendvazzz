@@ -71,9 +71,10 @@ func (repo *TransactionsRepository) GetInvoiceByID(id string) (*model.Invoice, e
 			t.serial_number,
 			t.status,
 			t.created_at,
-			COALESCE(p.total_amount, 0) AS total_amount,
-			COALESCE(p.status, '') AS payment_status,
+			COALESCE(p.total_amount, 0) AS total,
+			COALESCE(p.status, '') AS paymentStatus,
 			COALESCE(p.method, '') AS method,
+			COALESCE(p.payment_number, '') AS payementNumber,
 			t.updated_at
 		FROM transactions t
 		LEFT JOIN payments p ON t.order_id = p.order_id
@@ -95,6 +96,7 @@ func (repo *TransactionsRepository) GetInvoiceByID(id string) (*model.Invoice, e
 		&invoice.TotalAmount,
 		&invoice.PaymentStatus,
 		&invoice.Method,
+		&invoice.PaymentNumber,
 		&invoice.UpdatedAt,
 	)
 

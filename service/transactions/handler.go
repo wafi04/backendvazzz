@@ -136,11 +136,10 @@ func (h *TransactionHandler) CallbackDuitku(c *gin.Context) {
 		return
 	}
 
-	// Log raw request body
 	log.Printf("Raw callback body: %s", string(rawBody))
 
 	// Process callback
-	err = h.transactionRepo.CallbackTransactionFromDuitku(c, rawBody)
+	err = h.transactionRepo.CallbackTransactionFromDuitkuRaw(c, rawBody)
 	if err != nil {
 		log.Printf("Error processing Duitku callback: %v", err)
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Failed to process callback", err.Error())

@@ -100,7 +100,7 @@ func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCre
 		"productDetails":  params.ProductDetails,
 		"paymentMethod":   params.PaymentCode,
 		"signature":       signature,
-		"callbackUrl":     "https://f81191715940.ngrok-free.app/api/transactions/callback/duitku",
+		"callbackUrl":     "https://localhost:8080/api/transactions/callback/duitku",
 	}
 
 	jsonData, err := json.Marshal(payload)

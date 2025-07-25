@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -137,6 +138,7 @@ func (d *DigiflazzService) CheckPrice() ([]*ProductData, error) {
 
 func (d *DigiflazzService) TopUp(ctx context.Context, req CreateTransactionToDigiflazz) (*TransactionCreateDigiflazzResponse, error) {
 	// Generate signature
+	log.Print("Transaction called digiflazz")
 	data := d.config.DigiUsername + d.config.DigiKey + req.RefID
 	hash := md5.Sum([]byte(data))
 	sign := fmt.Sprintf("%x", hash)
@@ -147,7 +149,7 @@ func (d *DigiflazzService) TopUp(ctx context.Context, req CreateTransactionToDig
 		"customer_no":    req.CustomerNo,
 		"ref_id":         req.RefID,
 		"sign":           sign,
-		"cb_url":         "https://f81191715940.ngrok-free.app/api/transactions/callback/digiflazz",
+		"cb_url":         "https://localhost:8080/api/transactions/callback/digiflazz",
 	}
 
 	jsonData, err := json.Marshal(requestPayload)
