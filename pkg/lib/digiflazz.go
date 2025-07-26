@@ -38,17 +38,17 @@ type CreateTransactionToDigiflazz struct {
 }
 type TransactionCreateDigiflazzResponse struct {
 	Data struct {
-		RefID          string `json:"ref_id"`           // ID unik dari transaksi
-		CustomerNo     string `json:"customer_no"`      // Nomor pelanggan
-		BuyerSKUCode   string `json:"buyer_sku_code"`   // Kode produk
-		Message        string `json:"message"`          // Pesan status transaksi
-		Status         string `json:"status"`           // Status transaksi, contoh: Pending
-		RC             string `json:"rc"`               // Response code
-		SN             string `json:"sn"`               // Serial number (bisa kosong)
-		BuyerLastSaldo int    `json:"buyer_last_saldo"` // Saldo terakhir pembeli
-		Price          int    `json:"price"`            // Harga transaksi
-		Tele           string `json:"tele"`             // Kontak Telegram
-		WA             string `json:"wa"`               // Kontak WhatsApp
+		RefID          string `json:"ref_id"`
+		CustomerNo     string `json:"customer_no"`
+		BuyerSKUCode   string `json:"buyer_sku_code"`
+		Message        string `json:"message"`
+		Status         string `json:"status"`
+		RC             string `json:"rc"`
+		SN             string `json:"sn"`
+		BuyerLastSaldo int    `json:"buyer_last_saldo"`
+		Price          int    `json:"price"`
+		Tele           string `json:"tele"`
+		WA             string `json:"wa"`
 	} `json:"data"`
 }
 
