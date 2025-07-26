@@ -23,14 +23,6 @@ func StringPtr(s string) *string {
 	return &s
 }
 
-func GetFromContext(ctx *gin.Context, key string) *string {
-	if val, exists := ctx.Get(key); exists {
-		if str, ok := val.(string); ok {
-			return &str
-		}
-	}
-	return nil
-}
 func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 	transactionRepo := transaction.NewTransactionRepository(db)
 	transactionsRepo := transactions.NewTransactionsRepository(db)
@@ -65,7 +57,6 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 			}
 
 			// usernamePtr := GetFromContext(ctx, "username")
-			rolePtr := GetFromContext(ctx, "role")
 
 			// if u, ok := ctx.Get("username"); ok {
 			// 	if usernameStr, isString := u.(string); isString {
@@ -75,18 +66,12 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 
 			// fmt.Printf("%s", *usernamePtr)
 
-			if r, ok := ctx.Get("role"); ok {
-				if roleStr, isString := r.(string); isString {
-					rolePtr = StringPtr(roleStr)
-				}
-			}
-
 			response, err := transactionRepo.Create(ctx, transaction.CreateTransaction{
 				ProductCode: input.ProductCode,
 				MethodCode:  input.MethodCode,
 				WhatsApp:    input.WhatsApp,
 				Username:    "adminaja",
-				Role:        rolePtr,
+				Role:        "",
 				VoucherCode: input.VoucherCode,
 				GameId:      input.GameId,
 				Zone:        input.Zone,

@@ -73,7 +73,9 @@ type FilterTransaction struct {
 type Invoice struct {
 	OrderID       string    `json:"orderId" db:"order_id"`
 	Username      *string   `json:"username,omitempty" db:"username"`
+	Price         int       `json:"price"`
 	Discount      int       `json:"discount" db:"discount"`
+	ServiceName   string    `json:"serviceName"`
 	Nickname      *string   `json:"nickname,omitempty" db:"nickname"`
 	UserID        string    `json:"userId" db:"user_id"`
 	PaymentNumber string    `json:"paymentNumber"`

@@ -228,9 +228,9 @@ func (repo *TransactionRepository) insertTransaction(ctx context.Context, tx *sq
         INSERT INTO transactions (
             order_id, username,provider_order_id, purchase_price, discount, user_id, zone,
             service_name, price, profit, profit_amount, status, is_digi,
-            success_report_sent, transaction_type, created_at
+            success_report_sent, transaction_type, created_at,message
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,$15, NOW()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,$15, NOW(),'Transaction Pending'
         )
     `
 
