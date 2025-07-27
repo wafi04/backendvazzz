@@ -77,8 +77,8 @@ type PaymentResponse struct {
 
 func NewDuitkuService() *DuitkuService {
 	return &DuitkuService{
-		DuitkuKey:             "9ecc7819ac45c6f63e4351e0329dc123",
-		DuitkuMerchantCode:    "D16328",
+		DuitkuKey:             "f08c81f8cd52e0f93dd80088dbf7f1c8",
+		DuitkuMerchantCode:    "DS22269",
 		BaseUrl:               "https://passport.duitku.com/webapi/api/merchant/v2/inquiry",
 		SandboxUrl:            "https://sandbox.duitku.com/webapi/api/merchant/v2/inquiry",
 		BaseUrlGetTransaction: "https://passport.duitku.com/webapi/api/merchant/transactionStatus",
@@ -100,7 +100,7 @@ func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCre
 		"productDetails":  params.ProductDetails,
 		"paymentMethod":   params.PaymentCode,
 		"signature":       signature,
-		"callbackUrl":     "https://localhost:8080/api/transactions/callback/duitku",
+		"callbackUrl":     "https://dea77f427946.ngrok-free.app/api/transactions/callback/duitku",
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -108,7 +108,7 @@ func (s *DuitkuService) CreateTransaction(ctx context.Context, params *DuitkuCre
 		return nil, nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", s.BaseUrl, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", s.SandboxUrl, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, nil
 	}

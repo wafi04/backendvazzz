@@ -58,6 +58,90 @@ func (repo *TransactionsRepository) GetByID(id int64) (*types.Transaction, error
 
 	return &transaction, nil
 }
+
+func (repo *TransactionsRepository) GetReportTransactions(c context.Context, limit, page int, username string) ([]*model.Invoice, int, error) {
+	countQuery := `
+		SELECT COUNT(*) 
+		FROM transactions t
+		LEFT JOIN payments p ON t.order_id = p.order_id
+		WHERE t.username = $1`
+
+	var totalCount int
+	err := repo.DB.QueryRowContext(c, countQuery, username).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * limit
+
+	query := `
+		SELECT
+			t.order_id,
+			t.username,
+			t.discount,
+			t.service_name,
+			t.price,
+			t.nickname,
+			t.user_id,
+			t.zone,
+			t.message,
+			t.serial_number,
+			t.status,
+			t.created_at,
+			COALESCE(p.total_amount, 0) AS total,
+			COALESCE(p.status, '') AS payment_status,
+			COALESCE(p.method, '') AS method,
+			COALESCE(p.payment_number, '') AS payment_number,
+			t.updated_at
+		FROM transactions t
+		LEFT JOIN payments p ON t.order_id = p.order_id
+		WHERE t.username = $1
+		ORDER BY t.created_at DESC
+		LIMIT $2 OFFSET $3`
+
+	rows, err := repo.DB.QueryContext(c, query, username, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var invoices []*model.Invoice
+
+	for rows.Next() {
+		var invoice model.Invoice
+		err := rows.Scan(
+			&invoice.OrderID,
+			&invoice.Username,
+			&invoice.Discount,
+			&invoice.ServiceName,
+			&invoice.Price,
+			&invoice.Nickname,
+			&invoice.UserID,
+			&invoice.Zone,
+			&invoice.Message,
+			&invoice.SerialNumber,
+			&invoice.Status,
+			&invoice.CreatedAt,
+			&invoice.TotalAmount,
+			&invoice.PaymentStatus,
+			&invoice.Method,
+			&invoice.PaymentNumber,
+			&invoice.UpdatedAt,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		invoices = append(invoices, &invoice)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return invoices, totalCount, nil
+}
+
 func (repo *TransactionsRepository) GetInvoiceByID(id string) (*model.Invoice, error) {
 	query := `
 		SELECT
@@ -264,7 +348,6 @@ func (repo *TransactionsRepository) GetAllWithPayment(c context.Context, req mod
 		var paymentCreatedAt, paymentUpdatedAt sql.NullTime
 
 		err := rows.Scan(
-			// Transaction fields
 			&transaction.ID,
 			&transaction.OrderID,
 			&transaction.Username,

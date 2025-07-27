@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	middleware "github.com/wafi04/backendvazzz/pkg/midlleware"
 	"github.com/wafi04/backendvazzz/pkg/utils"
 	"github.com/wafi04/backendvazzz/service/transaction"
 	"github.com/wafi04/backendvazzz/service/transactions"
@@ -29,6 +30,7 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 	transactionsHandler := transactions.NewTransactionHandler(transactionsRepo)
 
 	r := api.Group("/transactions")
+	protected := r.Use(middleware.AuthMiddleware())
 	{
 
 		r.POST("", func(ctx *gin.Context) {
@@ -71,7 +73,6 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 				MethodCode:  input.MethodCode,
 				WhatsApp:    input.WhatsApp,
 				Username:    "adminaja",
-				Role:        "",
 				VoucherCode: input.VoucherCode,
 				GameId:      input.GameId,
 				Zone:        input.Zone,
@@ -88,7 +89,7 @@ func SetUpTransactionRoutes(api *gin.RouterGroup, db *sql.DB) {
 		r.GET("/invoice/:id", transactionsHandler.Invoice)
 		r.POST("/callback/digiflazz", transactionsHandler.CallbackDigiflazz)
 		r.POST("/callback/duitku", transactionsHandler.CallbackDuitku)
-
+		protected.GET("/history", transactionsHandler.GetRepostTransaction)
 	}
 
 }

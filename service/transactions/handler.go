@@ -125,13 +125,9 @@ func (h *TransactionHandler) Invoice(c *gin.Context) {
 func (h *TransactionHandler) CallbackDuitku(c *gin.Context) {
 	c.Header("Content-Type", "application/json")
 
-	// Log incoming request
-	log.Printf("DUITKU callback received from IP: %s", c.ClientIP())
-
 	// Read raw request body
 	rawBody, err := c.GetRawData()
 	if err != nil {
-		log.Printf("Error reading request body: %v", err)
 		utils.ErrorResponse(c, http.StatusBadRequest, "Failed to read request body", err.Error())
 		return
 	}
@@ -141,7 +137,6 @@ func (h *TransactionHandler) CallbackDuitku(c *gin.Context) {
 	// Process callback
 	err = h.transactionRepo.CallbackTransactionFromDuitkuRaw(c, rawBody)
 	if err != nil {
-		log.Printf("Error processing Duitku callback: %v", err)
 		utils.ErrorResponse(c, http.StatusInternalServerError, "Failed to process callback", err.Error())
 		return
 	}
@@ -153,9 +148,6 @@ func (h *TransactionHandler) CallbackDigiflazz(c *gin.Context) {
 	// Set response content type
 	c.Header("Content-Type", "application/json")
 
-	// Log incoming request for debugging
-	log.Printf("Digiflazz callback received from IP: %s", c.ClientIP())
-
 	// Get raw request body for logging
 	rawBody, exists := c.Get(gin.BodyBytesKey)
 	if exists {
@@ -166,7 +158,6 @@ func (h *TransactionHandler) CallbackDigiflazz(c *gin.Context) {
 
 	// Bind JSON request
 	if err := c.ShouldBindJSON(&rawRequest); err != nil {
-		log.Printf("Failed to bind JSON: %v", err)
 		utils.ErrorResponse(c, http.StatusBadRequest, "invalid json format", "Failed to unmarshal callback detail: %v")
 
 		return
@@ -174,7 +165,6 @@ func (h *TransactionHandler) CallbackDigiflazz(c *gin.Context) {
 
 	// Validate request body is not empty
 	if rawRequest.Data == nil && rawRequest.RefID == nil {
-		log.Printf("Empty request body received")
 		utils.ErrorResponse(c, http.StatusBadRequest, "Empty is required", "Failed to unmarshal callback detail: %v")
 
 		return
@@ -186,14 +176,12 @@ func (h *TransactionHandler) CallbackDigiflazz(c *gin.Context) {
 	if rawRequest.Data != nil {
 		dataBytes, err := json.Marshal(rawRequest.Data)
 		if err != nil {
-			log.Printf("Failed to marshal data field: %v", err)
 			utils.ErrorResponse(c, http.StatusBadRequest, "Failed to decode response from digiflazz", "Failed to unmarshal callback detail: %v")
 			return
 		}
 
 		var detail CallbackDetail
 		if err := json.Unmarshal(dataBytes, &detail); err != nil {
-			log.Printf("Failed to unmarshal callback detail: %v", err)
 			utils.ErrorResponse(c, http.StatusBadRequest, "Message is required", "Failed to unmarshal callback detail: %v")
 			return
 		}
@@ -216,7 +204,6 @@ func (h *TransactionHandler) CallbackDigiflazz(c *gin.Context) {
 
 	// Validate required fields
 	if callbackData.Data.RefID == "" {
-		log.Printf("Missing ref_id in callback data")
 		utils.ErrorResponse(c, http.StatusBadRequest, "RefId is required", "RefId is required")
 		return
 	}
@@ -225,10 +212,6 @@ func (h *TransactionHandler) CallbackDigiflazz(c *gin.Context) {
 		utils.ErrorResponse(c, http.StatusBadRequest, "Message is required", "Message is required")
 		return
 	}
-
-	// Log processed callback data
-	log.Printf("Processing callback - RefID: %s, Status: %s, CustomerNo: %s",
-		callbackData.Data.RefID, callbackData.Data.Status, callbackData.Data.CustomerNo)
 
 	// Process callback
 	ctx := c.Request.Context()
@@ -240,8 +223,45 @@ func (h *TransactionHandler) CallbackDigiflazz(c *gin.Context) {
 	}
 
 	// Success response
-	log.Printf("Callback processed successfully - RefID: %s", callbackData.Data.RefID)
 	utils.SuccessResponse(c, http.StatusCreated, "Callback processed successfully", callbackData)
+}
+
+func (h *TransactionHandler) GetRepostTransaction(c *gin.Context) {
+	page := c.DefaultQuery("page", "1")
+	limit := c.DefaultQuery("limit", "10")
+	usernameInterface, exists := c.Get("username")
+	if !exists {
+		utils.ErrorResponse(c, http.StatusUnauthorized, "unauthorized", "username not found in context") // Fix: status code
+		return
+	}
+
+	username, ok := usernameInterface.(string)
+	if !ok {
+		utils.ErrorResponse(c, http.StatusUnauthorized, "unauthorized", "invalid username type") // Fix: status code
+		return
+	}
+	paginationResult := utils.CalculatePagination(&page, &limit)
+	data, totalCount, err := h.transactionRepo.GetReportTransactions(
+		c.Request.Context(),
+		paginationResult.ItemsPerPage,
+		paginationResult.CurrentPage,
+		username,
+	)
+	log.Println(data)
+	if err != nil {
+		utils.ErrorResponse(c, http.StatusInternalServerError, "Failed to fetch report transactions", err.Error())
+		return
+	}
+
+	// Buat paginated response
+	response := utils.CreatePaginatedResponse(
+		data,
+		paginationResult.CurrentPage,
+		paginationResult.ItemsPerPage,
+		totalCount,
+	)
+
+	utils.SuccessResponse(c, http.StatusOK, "Report Trasactions retrieved successfully", response)
 }
 
 func getStringValue(s *string) string {

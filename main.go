@@ -49,32 +49,24 @@ func main() {
 	r.Use(cors.New(config))
 
 	api := r.Group("/api")
-	log.Println("🔧 Setting up all routes...")
 
 	server.SetupRoutes(api, db)
-	log.Println("✅ SetupRoutes completed")
 
 	server.SetupRoutesSubCategories(api, db)
-	log.Println("✅ SetupRoutesSubCategories completed")
 
 	server.SetupRoutesMethod(api, db)
-	log.Println("✅ SetupRoutesMethod completed")
 
 	server.GetProductFromDigiflazz(api, db)
-	log.Println("✅ GetProductFromDigiflazz completed")
 
 	server.SetupRoutesUser(api, db)
-	log.Println("✅ SetupRoutesUser completed")
 
 	server.SetupRoutesNews(api, db)
-	log.Println("✅ SetupRoutesNews completed")
 
 	server.SetupRoutesProducts(api, db)
-	log.Println("✅ SetupRoutesProducts completed")
 
 	server.SetUpTransactionRoutes(api, db)
-	log.Println("✅ SetUpTransactionRoutes completed")
-
+	server.SetupDepositTransaction(api, db)
+	server.SetupAnalyticsRoutes(api, db)
 	// Health check endpoint
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -103,13 +95,6 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-
-	log.Printf("🚀 Server starting on port %s", port)
-	log.Printf("📍 Available endpoints:")
-	log.Printf("   • Health: http://localhost:%s/health", port)
-	log.Printf("   • Routes: http://localhost:%s/routes", port)
-	log.Printf("   • Transaction Test: http://localhost:%s/api/transaction/test", port)
-	log.Printf("   • Transaction Create: POST http://localhost:%s/api/transaction", port)
 
 	log.Fatal(r.Run(":" + port))
 }

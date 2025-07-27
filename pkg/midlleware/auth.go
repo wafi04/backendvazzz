@@ -12,14 +12,11 @@ var authHelpers = NewAuthHelpers()
 
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Try to get token from multiple sources
 		var tokenString string
 
-		// First try cookie
 		if token, err := c.Cookie("vazzaccess"); err == nil && token != "" {
 			tokenString = token
 		} else {
-			// Fallback to Authorization header
 			authHeader := c.GetHeader("Authorization")
 			if authHeader == "" {
 				c.JSON(http.StatusUnauthorized, gin.H{
@@ -30,7 +27,6 @@ func AuthMiddleware() gin.HandlerFunc {
 				return
 			}
 
-			// Check Bearer format
 			if !strings.HasPrefix(authHeader, "Bearer ") {
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"success": false,
@@ -40,7 +36,6 @@ func AuthMiddleware() gin.HandlerFunc {
 				return
 			}
 
-			// Extract token
 			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
 		}
 
@@ -56,7 +51,6 @@ func AuthMiddleware() gin.HandlerFunc {
 		// Validate token
 		claims, err := config.ValidateToken(tokenString)
 		if err != nil {
-			// If token is invalid and it's from cookie, clear the cookie
 			if _, cookieErr := c.Cookie("vazzaccess"); cookieErr == nil {
 				authHelpers.ClearAuthCookie(c)
 			}

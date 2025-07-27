@@ -14,6 +14,7 @@ type DepositData struct {
 }
 
 type CreateDeposit struct {
-	Method string `json:"method" validate:"required"`
-	Amount int    `json:"amount" validate:"required"`
+	PaymentReference string `json:"payment_reference"`
+	Method           string `json:"method" validate:"required"`
+	Amount           int    `json:"amount" validate:"required"`
 }

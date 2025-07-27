@@ -4,12 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
+	"regexp"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/wafi04/backendvazzz/pkg/lib"
+	"github.com/wafi04/backendvazzz/pkg/utils"
 )
 
 type CallbackDuitku struct {
@@ -19,6 +23,35 @@ type CallbackDuitku struct {
 	MerchantOrderId string `json:"merchantOrderId"`
 	ResultCode      string `json:"resultCode"`
 	Signature       string `json:"signature"`
+}
+
+var (
+	depositPattern = regexp.MustCompile(`^DEP\d+$`)
+	paymentPattern = regexp.MustCompile(`^VAZZ\d+$`)
+)
+
+type TransactionType string
+
+const (
+	TransactionDeposit  TransactionType = "DEPOSIT"
+	TransactionPayment  TransactionType = "PAYMENT"
+	TransactionWithdraw TransactionType = "WITHDRAW"
+	TransactionRefund   TransactionType = "REFUND"
+	TransactionUnknown  TransactionType = "UNKNOWN"
+)
+
+func detectTransactionType(merchantOrderId string) TransactionType {
+	id := strings.TrimSpace(strings.ToUpper(merchantOrderId))
+
+	switch {
+	case depositPattern.MatchString(id):
+		return TransactionDeposit
+	case paymentPattern.MatchString(id):
+		return TransactionPayment
+
+	default:
+		return TransactionUnknown
+	}
 }
 
 func (repo *TransactionsRepository) CallbackTransactionFromDuitkuRaw(c context.Context, duitkuRawResponseBytes []byte) error {
@@ -50,7 +83,14 @@ func (repo *TransactionsRepository) CallbackTransactionFromDuitkuRaw(c context.C
 		return fmt.Errorf("payment not successful for order %s, result code: %s", data.MerchantOrderId, data.ResultCode)
 	}
 
-	return repo.processPayment(c, data.MerchantOrderId)
+	switch detectTransactionType(data.MerchantOrderId) {
+	case TransactionDeposit:
+		return repo.processDeposit(c, data.MerchantOrderId)
+	case TransactionPayment:
+		return repo.processPayment(c, data.MerchantOrderId)
+	default:
+		return fmt.Errorf("unsupported transaction type for order %s", data.MerchantOrderId)
+	}
 }
 
 func (repo *TransactionsRepository) processPayment(c context.Context, merchantOrderId string) error {
@@ -172,7 +212,6 @@ func (repo *TransactionsRepository) processPayment(c context.Context, merchantOr
 		if Username != nil {
 			messages = "Transaksi Gagal, Payment Otomatis jadi Saldo"
 
-			// Refund ke user balance
 			queryRefund := `
 			UPDATE users 
 			SET balance = balance + $1
@@ -221,6 +260,112 @@ func (repo *TransactionsRepository) processPayment(c context.Context, merchantOr
 	if err = tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction for order %s: %w", TrxId, err)
 	}
+
+	return nil
+}
+func (repo *TransactionsRepository) processDeposit(ctx context.Context, merchantOrderId string) error {
+	tx, err := repo.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if rErr := tx.Rollback(); rErr != nil && rErr != sql.ErrTxDone {
+			log.Printf("Error during transaction rollback: %v", rErr)
+		}
+	}()
+
+	// 1. Ambil data deposit
+	var deposit struct {
+		ID       int
+		Username string
+		Amount   int
+		Status   string
+		Method   string
+	}
+
+	err = tx.QueryRowContext(ctx, `
+        SELECT id, username, amount, status, method 
+        FROM deposits 
+        WHERE deposit_id = $1`, merchantOrderId).Scan(
+		&deposit.ID, &deposit.Username, &deposit.Amount, &deposit.Status, &deposit.Method)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("deposit not found: %s", merchantOrderId)
+		}
+		return fmt.Errorf("failed to get deposit: %w", err)
+	}
+
+	// 2. Validasi status deposit
+	if strings.ToUpper(deposit.Status) != "PENDING" {
+		return fmt.Errorf("deposit already processed: status %s", deposit.Status)
+	}
+
+	// 3. Hitung amount dengan fee
+	var amountWithFee int
+	switch deposit.Method {
+	case "Mandiri Virtual Account":
+		fee := utils.CalculateFeeQris(deposit.Amount)
+		amountWithFee = deposit.Amount - fee
+		log.Printf("Applied fee %d for Mandiri Virtual Account, final amount: %d", fee, amountWithFee)
+	default:
+		amountWithFee = deposit.Amount
+	}
+
+	_, err = tx.ExecContext(ctx, `
+        WITH updated_deposit AS (
+            UPDATE deposits 
+            SET status = 'SUCCESS', 
+                log = 'Deposit berhasil diproses', 
+                updated_at = NOW()
+            WHERE deposit_id = $1
+            RETURNING id
+        ),
+        updated_user AS (
+            UPDATE users 
+            SET balance = COALESCE(balance, 0) + $2,
+                updated_at = NOW()
+            WHERE username = $3
+            RETURNING id, balance, balance - $2 AS old_balance
+        )
+        INSERT INTO balance_histories (
+            username, 
+            platform_id,
+            batch_id,
+            balance_before,
+            balance_after,
+            description,
+            amount_changed,
+            change_type,
+            created_at
+        )
+        SELECT 
+            $3, -- username
+            'DUITKU',  
+            $4, -- batch_id
+            old_balance,      
+            balance,           
+            'Deposit via ' || $5, -- description
+            $2, -- amount_changed                  
+            'CREDIT', -- change_type            
+            NOW()
+        FROM updated_user`,
+		merchantOrderId,     // $1
+		amountWithFee,       // $2
+		deposit.Username,    // $3
+		uuid.New().String(), // $4
+		deposit.Method)      // $5
+
+	if err != nil {
+		return fmt.Errorf("failed to process deposit transaction: %w", err)
+	}
+
+	// 5. Commit transaksi
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("Deposit processed successfully - ID: %s, Amount: %d, User: %s, Method: %s",
+		merchantOrderId, deposit.Amount, deposit.Username, deposit.Method)
 
 	return nil
 }

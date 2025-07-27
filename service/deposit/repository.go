@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/wafi04/backendvazzz/pkg/model"
-	"github.com/wafi04/backendvazzz/pkg/utils"
 )
 
 type DepositRepository struct {
@@ -21,9 +21,35 @@ func NewDepositRepository(db *sql.DB) *DepositRepository {
 }
 
 // Create - Membuat deposit baru
-func (r *DepositRepository) Create(c context.Context, deposit model.CreateDeposit, username string, log string) (int, error) {
-	depStr := "DEP"
-	depositID := utils.GenerateUniqeID(&depStr)
+func (r *DepositRepository) Create(c context.Context, deposit model.CreateDeposit, username string, depositID, logs string) (string, error) {
+	tx, err := r.Repo.BeginTx(c, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer func() {
+		if err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			}
+		} else {
+			if commitErr := tx.Commit(); commitErr != nil {
+				err = fmt.Errorf("failed to commit transaction: %w", commitErr)
+			}
+		}
+	}()
+
+	var methodName string
+
+	queryMethod := `
+		SELECT name
+		FROM payment_methods
+		WHERE code = $1
+	`
+	err = tx.QueryRowContext(c, queryMethod,
+		deposit.Method).Scan(&methodName)
+	if err != nil {
+		return "", fmt.Errorf("failed to insert deposit: %w", err)
+	}
 	query := `INSERT INTO deposits (
 		method, 
 		amount,
@@ -33,18 +59,30 @@ func (r *DepositRepository) Create(c context.Context, deposit model.CreateDeposi
 		status,
 		created_at,
 		updated_at,
-		log) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
-			$8, $9) RETURNING id`
+		log
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`
+
 	var id int
-	err := r.Repo.QueryRowContext(c, query, deposit.Method, deposit.Amount, username, depositID, depositID, "PENDING", time.Now(), time.Now(), log).Scan(&id)
+	err = tx.QueryRowContext(c, query,
+		methodName,
+		deposit.Amount,
+		username,
+		depositID,
+		deposit.PaymentReference, // payment_reference same as depositID?
+		"PENDING",
+		time.Now(),
+		time.Now(),
+		logs).Scan(&id)
+
 	if err != nil {
-		return 0, err
+
+		return "", fmt.Errorf("failed to insert deposit: %w", err)
 	}
-	return id, nil
+
+	return depositID, nil
 }
 
-// GetByID - Mengambil deposit berdasarkan ID
 func (r *DepositRepository) GetByID(c context.Context, id int) (*model.DepositData, error) {
 	query := `SELECT id, username, method, deposit_id, payment_reference, amount, status, created_at, updated_at, log 
 			  FROM deposits WHERE id = $1`
@@ -78,7 +116,6 @@ func (r *DepositRepository) GetByID(c context.Context, id int) (*model.DepositDa
 	return &deposit, nil
 }
 
-// GetByDepositID - Mengambil deposit berdasarkan Deposit ID
 func (r *DepositRepository) GetByDepositID(c context.Context, depositID string) (*model.DepositData, error) {
 	query := `SELECT id, username, method, deposit_id, payment_reference, amount, status, created_at, updated_at, log 
 			  FROM deposits WHERE deposit_id = $1`
@@ -112,14 +149,27 @@ func (r *DepositRepository) GetByDepositID(c context.Context, depositID string) 
 	return &deposit, nil
 }
 
-// GetByUsername - Mengambil semua deposit berdasarkan username
-func (r *DepositRepository) GetByUsername(c context.Context, username string, limit, offset int) ([]model.DepositData, error) {
+func (r *DepositRepository) GetByDepositByUsername(c context.Context, username string, limit, offset int) ([]model.DepositData, int, error) {
+	countQuery := `
+		SELECT COUNT(*) 
+		FROM deposits
+		WHERE ($1 = '' OR username ILIKE '%' || $1 || '%')
+	`
+	var totalCount int
+	err := r.Repo.QueryRowContext(c, countQuery, username).Scan(&totalCount)
+	if err != nil {
+		return nil, 0, err
+	}
 	query := `SELECT id, username, method, deposit_id, payment_reference, amount, status, created_at, updated_at, log 
-			  FROM deposits WHERE username = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
+			  FROM deposits 
+			  WHERE ($1 = '' OR username ILIKE '%' || $1 || '%')
+				ORDER BY created_at DESC 
+				LIMIT $2 OFFSET $3
+			  `
 
 	rows, err := r.Repo.QueryContext(c, query, username, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -143,7 +193,7 @@ func (r *DepositRepository) GetByUsername(c context.Context, username string, li
 		)
 
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		deposit.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
@@ -153,20 +203,46 @@ func (r *DepositRepository) GetByUsername(c context.Context, username string, li
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-
-	return deposits, nil
+	return deposits, totalCount, nil
 }
 
-// GetAll - Mengambil semua deposit dengan pagination
-func (r *DepositRepository) GetAll(c context.Context, limit, offset int) ([]model.DepositData, error) {
-	query := `SELECT id, username, method, deposit_id, payment_reference, amount, status, created_at, updated_at, log 
-			  FROM deposits ORDER BY created_at DESC LIMIT $1 OFFSET $2`
+func (r *DepositRepository) GetAll(c context.Context, limit, offset int, search, status string) ([]model.DepositData, int, error) {
+	countQuery := `
+		SELECT COUNT(*) 
+		FROM deposits
+		WHERE ($1 = '' OR username ILIKE '%' || $1 || '%')
+		  AND ($2 = '' OR type = $2)
+	`
 
-	rows, err := r.Repo.QueryContext(c, query, limit, offset)
+	var totalCount int
+	err := r.Repo.QueryRowContext(c, countQuery, search, status).Scan(&totalCount)
 	if err != nil {
-		return nil, err
+		log.Printf("GetAll Categories count error: %v", err)
+		return nil, 0, err
+	}
+
+	query := `SELECT 
+				id, 
+				username, 
+				method, 
+				deposit_id, 
+				payment_reference, 
+				amount, 
+				status, 
+				created_at, 
+				updated_at, 
+				log 
+			FROM deposits 
+			WHERE ($1 = '' OR username ILIKE '%' || $1 || '%')
+		  		AND ($2 = '' OR type = $2)
+			ORDER BY created_at DESC 
+			LIMIT $3 OFFSET $4`
+
+	rows, err := r.Repo.QueryContext(c, query, search, status, limit, offset)
+	if err != nil {
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -190,7 +266,7 @@ func (r *DepositRepository) GetAll(c context.Context, limit, offset int) ([]mode
 		)
 
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		deposit.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
@@ -200,96 +276,12 @@ func (r *DepositRepository) GetAll(c context.Context, limit, offset int) ([]mode
 	}
 
 	if err = rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return deposits, nil
+	return deposits, totalCount, nil
 }
 
-// GetByStatus - Mengambil deposit berdasarkan status
-func (r *DepositRepository) GetByStatus(c context.Context, status string, limit, offset int) ([]model.DepositData, error) {
-	query := `SELECT id, username, method, deposit_id, payment_reference, amount, status, created_at, updated_at, log 
-			  FROM deposits WHERE status = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-
-	rows, err := r.Repo.QueryContext(c, query, status, limit, offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var deposits []model.DepositData
-
-	for rows.Next() {
-		var deposit model.DepositData
-		var createdAt, updatedAt time.Time
-
-		err := rows.Scan(
-			&deposit.ID,
-			&deposit.Username,
-			&deposit.Method,
-			&deposit.DepositID,
-			&deposit.PaymentReference,
-			&deposit.Amount,
-			&deposit.Status,
-			&createdAt,
-			&updatedAt,
-			&deposit.Log,
-		)
-
-		if err != nil {
-			return nil, err
-		}
-
-		deposit.CreatedAt = createdAt.Format("2006-01-02 15:04:05")
-		deposit.UpdatedAt = updatedAt.Format("2006-01-02 15:04:05")
-
-		deposits = append(deposits, deposit)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return deposits, nil
-}
-
-// UpdateStatus - Mengupdate status deposit
-func (r *DepositRepository) UpdateStatus(c context.Context, id int, status string, log *string) error {
-	query := `UPDATE deposits SET status = $1, updated_at = $2, log = $3 WHERE id = $4`
-
-	_, err := r.Repo.ExecContext(c, query, status, time.Now(), log, id)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// UpdateStatusByDepositID - Mengupdate status berdasarkan deposit_id
-func (r *DepositRepository) UpdateStatusByDepositID(c context.Context, depositID string, status string, log *string) error {
-	query := `UPDATE deposits SET status = $1, updated_at = $2, log = $3 WHERE deposit_id = $4`
-
-	_, err := r.Repo.ExecContext(c, query, status, time.Now(), log, depositID)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// UpdatePaymentReference - Mengupdate payment reference
-func (r *DepositRepository) UpdatePaymentReference(c context.Context, id int, paymentReference string) error {
-	query := `UPDATE deposits SET payment_reference = $1, updated_at = $2 WHERE id = $3`
-
-	_, err := r.Repo.ExecContext(c, query, paymentReference, time.Now(), id)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Delete - Menghapus deposit (soft delete dengan mengubah status)
 func (r *DepositRepository) Delete(c context.Context, id int) error {
 	query := `UPDATE deposits SET status = 'DELETED', updated_at = $1 WHERE id = $2`
 
@@ -308,53 +300,6 @@ func (r *DepositRepository) Delete(c context.Context, id int) error {
 	}
 
 	return nil
-}
-
-// HardDelete - Menghapus deposit secara permanen
-func (r *DepositRepository) HardDelete(c context.Context, id int) error {
-	query := `DELETE FROM deposits WHERE id = $1`
-
-	result, err := r.Repo.ExecContext(c, query, id)
-	if err != nil {
-		return err
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rowsAffected == 0 {
-		return fmt.Errorf("deposit with id %d not found", id)
-	}
-
-	return nil
-}
-
-// CountByUsername - Menghitung total deposit berdasarkan username
-func (r *DepositRepository) CountByUsername(c context.Context, username string) (int, error) {
-	query := `SELECT COUNT(*) FROM deposits WHERE username = $1`
-
-	var count int
-	err := r.Repo.QueryRowContext(c, query, username).Scan(&count)
-	if err != nil {
-		return 0, err
-	}
-
-	return count, nil
-}
-
-// CountByStatus - Menghitung total deposit berdasarkan status
-func (r *DepositRepository) CountByStatus(c context.Context, status string) (int, error) {
-	query := `SELECT COUNT(*) FROM deposits WHERE status = $1`
-
-	var count int
-	err := r.Repo.QueryRowContext(c, query, status).Scan(&count)
-	if err != nil {
-		return 0, err
-	}
-
-	return count, nil
 }
 
 // GetTotalAmount - Menghitung total amount berdasarkan username dan status

@@ -92,7 +92,6 @@ func (repo *CategoryRepository) GetAll(ctx context.Context, skip, limit int, sea
 		return nil, 0, err
 	}
 
-	// Query untuk mendapatkan data dengan pagination
 	query := `
 		SELECT id, name, sub_name, brand, code, is_check_nickname, status,
 			thumbnail, type, instruction, information,
@@ -129,14 +128,12 @@ func (repo *CategoryRepository) GetAll(ctx context.Context, skip, limit int, sea
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("Rows error: %v", err)
 		return nil, 0, err
 	}
 
 	return categories, totalCount, nil
 }
 
-// GetByID
 func (repo *CategoryRepository) GetByID(ctx context.Context, id int) (*model.Category, error) {
 	query := `
 		SELECT id, name, sub_name, brand, code, is_check_nickname, status,

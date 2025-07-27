@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -28,14 +29,26 @@ func ValidateToken(tokenString string) (jwt.MapClaims, error) {
 }
 
 func GenerateJWT(userID, username, role string) (string, error) {
+	// Buat claims dengan masa berlaku 24 jam
+	expirationTime := time.Now().Add(24 * time.Hour)
+
 	claims := jwt.MapClaims{
 		"user_id":  userID,
 		"username": username,
 		"role":     role,
-		"exp":      time.Now().Add(time.Hour * 24 * 1).Unix(),
-		"iat":      time.Now().Unix(),
+		"exp":      expirationTime.Unix(), // Waktu kadaluarsa (24 jam dari sekarang)
+		"iat":      time.Now().Unix(),     // Waktu diterbitkan
+		"nbf":      time.Now().Unix(),     // Valid dari waktu ini (optional)
 	}
 
+	// Buat token dengan metode signing HS256
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+
+	// Sign token dengan secret key
+	secretKey := os.Getenv("JWT_SECRET")
+	if secretKey == "" {
+		return "", fmt.Errorf("JWT_SECRET environment variable not set")
+	}
+
+	return token.SignedString([]byte(secretKey))
 }
